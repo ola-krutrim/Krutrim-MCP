@@ -1,0 +1,125 @@
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - name: Install locked runtime and development dependencies
+        run: uv sync --locked --extra dev --python "${{ matrix.python-version }}"
+      - name: Ruff
+        run: uv run --no-sync ruff check src tests scripts
+      - name: Credential path policy
+        run: git check-ignore -q --no-index .cursor/mcp.json
+      - name: Pytest
+        run: uv run --no-sync pytest -q
+      - name: Dependency integrity
+        run: uv pip check
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - name: Install locked security tooling
+        run: uv sync --locked --extra release --python 3.12
+      - name: Export and audit the hash-locked runtime
+        run: |
+          uv export --quiet --locked --no-dev --no-emit-project \
+            --output-file /tmp/krutrim-mcp-runtime-requirements.txt
+          uv run --no-sync pip-audit --strict --require-hashes \
+            --progress-spinner off \
+            --requirement /tmp/krutrim-mcp-runtime-requirements.txt
+      - name: Generate runtime CycloneDX SBOM
+        run: |
+          UV_PROJECT_ENVIRONMENT=/tmp/krutrim-mcp-runtime \
+            uv sync --locked --no-dev --python 3.12
+          VERSION="$(uv run --no-sync python -c \
+            'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          mkdir -p sbom
+          uv run --no-sync cyclonedx-py environment \
+            /tmp/krutrim-mcp-runtime/bin/python \
+            --pyproject pyproject.toml \
+            --mc-type library \
+            --spec-version 1.6 \
+            --output-reproducible \
+            --output-format JSON \
+            --output-file "sbom/krutrim-mcp-server-${VERSION}.cdx.json"
+      - name: Upload CI SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-sbom
+          path: sbom/
+          if-no-files-found: error
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - name: Install locked build dependencies
+        run: uv sync --locked --extra release --python 3.12
+      - name: Build sdist and wheel
+        run: |
+          uv run --no-sync python -m build --no-isolation
+          uv run --no-sync twine check dist/*
+      - name: Verify release contents
+        run: |
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import tarfile
+          import zipfile
+
+          for artifact in Path("dist").iterdir():
+              if artifact.name.endswith(".tar.gz"):
+                  with tarfile.open(artifact) as archive:
+                      names = archive.getnames()
+              elif artifact.suffix == ".whl":
+                  with zipfile.ZipFile(artifact) as archive:
+                      names = archive.namelist()
+              else:
+                  continue
+              packaged_tests = [name for name in names if "tests" in PurePosixPath(name).parts]
+              if packaged_tests:
+                  raise SystemExit(f"{artifact.name} contains tests: {packaged_tests[:5]}")
+          PY
+          VERSION="$(uv run --no-sync python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          uv run --no-sync python scripts/verify_release_artifacts.py local \
+            --dist dist \
+            --version "$VERSION"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

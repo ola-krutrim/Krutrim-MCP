@@ -1,0 +1,175 @@
+name: Publish stdio package
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PACKAGE_NAME: krutrim-mcp-server
+
+jobs:
+  build:
+    name: Build and validate stdio distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - name: Install locked test and release dependencies
+        run: uv sync --locked --extra dev --extra release --python 3.12
+      - name: Require a default-branch tag matching the package version
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH" || {
+            echo "Release tag must point to a commit on $DEFAULT_BRANCH" >&2
+            exit 1
+          }
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          metadata = tomllib.loads(Path("pyproject.toml").read_text())
+          package_version = metadata["project"]["version"]
+          runtime_source = Path("src/krutrim_mcp_server/_version.py").read_text()
+          match = re.search(r'^__version__ = "([^"]+)"$', runtime_source, re.MULTILINE)
+          if match is None:
+              raise SystemExit("could not read runtime version")
+          runtime_version = match.group(1)
+          expected_tag = f"v{package_version}"
+          actual_tag = os.environ["RELEASE_TAG"]
+          if runtime_version != package_version:
+              raise SystemExit(
+                  f"runtime version {runtime_version} != package version {package_version}"
+              )
+          if actual_tag != expected_tag:
+              raise SystemExit(f"tag {actual_tag} != expected tag {expected_tag}")
+          PY
+      - name: Run release tests
+        run: |
+          uv run --no-sync ruff check src tests scripts
+          uv run --no-sync pytest -q
+          uv pip check
+      - name: Audit the hash-locked runtime
+        run: |
+          uv export --quiet --locked --no-dev --no-emit-project \
+            --output-file /tmp/krutrim-mcp-runtime-requirements.txt
+          uv run --no-sync pip-audit --strict --require-hashes \
+            --progress-spinner off \
+            --requirement /tmp/krutrim-mcp-runtime-requirements.txt
+      - name: Build wheel and source distribution once
+        run: uv run --no-sync python -m build --no-isolation
+      - name: Validate metadata and package contents
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          uv run --no-sync twine check dist/*
+          uv run --no-sync python scripts/verify_release_artifacts.py local \
+            --dist dist \
+            --version "${RELEASE_VERSION#v}"
+      - name: Generate release CycloneDX SBOM
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          UV_PROJECT_ENVIRONMENT=/tmp/krutrim-mcp-release-runtime \
+            uv sync --locked --no-dev --python 3.12
+          mkdir -p sbom
+          uv run --no-sync cyclonedx-py environment \
+            /tmp/krutrim-mcp-release-runtime/bin/python \
+            --pyproject pyproject.toml \
+            --mc-type library \
+            --spec-version 1.6 \
+            --output-reproducible \
+            --output-format JSON \
+            --output-file \
+              "sbom/krutrim-mcp-server-${RELEASE_VERSION#v}.cdx.json"
+      - name: Smoke-test the built stdio wheel
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          uv venv /tmp/krutrim-mcp-release-smoke --python 3.12
+          uv pip install --require-hashes \
+            --python /tmp/krutrim-mcp-release-smoke/bin/python \
+            --requirement /tmp/krutrim-mcp-runtime-requirements.txt
+          uv pip install --no-deps \
+            --python /tmp/krutrim-mcp-release-smoke/bin/python \
+            dist/*.whl
+          uv pip check --python /tmp/krutrim-mcp-release-smoke/bin/python
+          test "$(/tmp/krutrim-mcp-release-smoke/bin/krutrim-mcp-server --version)" = \
+            "${RELEASE_VERSION#v}"
+          /tmp/krutrim-mcp-release-smoke/bin/krutrim-mcp-server --list-tools \
+            >/tmp/krutrim-mcp-tools.txt
+          test -s /tmp/krutrim-mcp-tools.txt
+      - name: Store immutable stdio distributions
+        uses: actions/upload-artifact@v5
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Store release SBOM
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-sbom
+          path: sbom/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-pypi:
+    name: Publish the validated stdio files to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/krutrim-mcp-server
+    permissions:
+      id-token: write
+    steps:
+      - name: Download the distributions validated by the build job
+        uses: actions/download-artifact@v6
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Publish to PyPI with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  verify-pypi:
+    name: Verify PyPI artifact digests
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v6
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Compare PyPI files with the original build
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          python scripts/verify_release_artifacts.py index \
+            --dist dist \
+            --repository https://pypi.org \
+            --project "$PACKAGE_NAME" \
+            --version "${RELEASE_VERSION#v}"
