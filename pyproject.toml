@@ -1,0 +1,99 @@
+[build-system]
+requires = ["hatchling>=1.26,<1.32"]
+build-backend = "hatchling.build"
+
+[project]
+name = "krutrim-mcp-server"
+version = "1.0.2"
+description = "MCP server for Krutrim Cloud core infrastructure (VPC, compute, storage, security)"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10,<3.14"
+authors = [
+  { name = "Krutrim Cloud", email = "cloudsupport@olakrutrim.com" },
+]
+keywords = ["mcp", "krutrim", "cloud", "llm", "infrastructure"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+  "mcp>=1.28.1,<2",
+  "krutrim-client>=0.6.0,<0.7",
+  "httpx>=0.28,<0.29",
+  "PyNaCl>=1.5,<2",
+  "pydantic>=2.12.0,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.8",
+]
+release = [
+  "hatchling>=1.26,<1.32",
+  "build>=1.2,<2",
+  "twine>=6,<7",
+  "pip-audit>=2.10,<3",
+  "cyclonedx-bom>=7.3,<8",
+]
+
+[project.urls]
+Homepage = "https://cloud.olakrutrim.com"
+Documentation = "https://docs.cloud.olakrutrim.com/mcp/overview"
+Source = "https://github.com/ola-krutrim/Krutrim-MCP"
+Issues = "https://github.com/ola-krutrim/Krutrim-MCP/issues"
+Changelog = "https://github.com/ola-krutrim/Krutrim-MCP/blob/main/CHANGELOG.md"
+License = "https://github.com/ola-krutrim/Krutrim-MCP/blob/main/LICENSE"
+"Copyright Notice" = "https://github.com/ola-krutrim/Krutrim-MCP/blob/main/COPYRIGHT.md"
+"Supplemental Terms" = "https://github.com/ola-krutrim/Krutrim-MCP/blob/main/SUPPLEMENTAL-TERMS.md"
+"Trademark Notice" = "https://github.com/ola-krutrim/Krutrim-MCP/blob/main/TRADEMARK.md"
+
+[project.scripts]
+krutrim-mcp-server = "krutrim_mcp_server.server:main"
+krutrim-mcp-credentials = "krutrim_mcp_server.credential_cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/krutrim_mcp_server"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"LICENSE" = "LICENSE"
+"COPYRIGHT.md" = "COPYRIGHT.md"
+"SUPPLEMENTAL-TERMS.md" = "SUPPLEMENTAL-TERMS.md"
+"TRADEMARK.md" = "TRADEMARK.md"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/docs",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/LICENSE",
+  "/COPYRIGHT.md",
+  "/SUPPLEMENTAL-TERMS.md",
+  "/TRADEMARK.md",
+  "/uv.lock",
+  "/.cursor/mcp.example.json",
+]
+exclude = [
+  "/tests",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]

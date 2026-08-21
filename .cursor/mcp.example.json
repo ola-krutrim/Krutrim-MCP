@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "krutrim-cloud": {
+      "command": "uvx",
+      "args": ["krutrim-mcp-server"],
+      "env": {
+        "KRUTRIM_ACCESS_TOKEN": "REPLACE_WITH_IAM_ACCESS_TOKEN",
+        "KRUTRIM_REFRESH_TOKEN": "REPLACE_WITH_IAM_REFRESH_TOKEN"
+      }
+    }
+  }
+}

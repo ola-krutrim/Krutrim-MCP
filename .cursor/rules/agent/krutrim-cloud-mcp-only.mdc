@@ -1,0 +1,32 @@
+---
+description: Krutrim Cloud infra operations must use MCP tools only, never direct Python client shell scripts
+alwaysApply: true
+---
+
+# Krutrim Cloud — MCP tools only
+
+When performing **Krutrim Cloud infrastructure operations** (VPC, VM, volumes, security groups, SSH keys, storage, etc.) in this repo or via the configured `krutrim-cloud` MCP server:
+
+## Required
+
+- Use **`CallMcpTool`** on the workspace-configured `krutrim-cloud` server.
+- Discover tool schemas with **`GetMcpTools`** before invoking.
+- Prefer read tools (`list_*`, `describe_*`, `search_*`) before mutations.
+- Pass **`confirm=true`** only after the user verifies mutating operations.
+- Pass an explicit **`region`** for region-scoped tools; do not infer from `KRUTRIM_DEFAULT_REGION`.
+
+## Forbidden
+
+- Do **not** bypass MCP by running **`krutrim_client`**, **`krutrim_mcp_server.client`**, or ad-hoc **`httpx`** / shell Python scripts against the Krutrim API for user-requested cloud operations.
+- Do **not** fall back to the Python client when MCP is temporarily unavailable — ask the user to reconnect/restart the MCP server and retry via MCP.
+
+## If MCP is unavailable
+
+1. Report that the `krutrim-cloud` MCP server is not connected.
+2. Suggest reloading MCP in Cursor or checking `.cursor/mcp.json`.
+3. Wait for MCP — do not substitute direct API/client calls.
+
+## Exceptions
+
+- Running **project tests** (`pytest`), **local server development**, or **CI** that intentionally exercise the Python package is allowed.
+- Code changes to the MCP server implementation itself may use the client in tests; that is not a substitute for user-facing infra operations.
