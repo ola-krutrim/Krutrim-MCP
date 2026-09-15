@@ -2,7 +2,7 @@
 
 Use Krutrim Cloud from Cursor, Claude Desktop, Claude Code, or Codex. The MCP
 server provides discovery and controlled operations for VPCs, compute, storage,
-networking, Kubernetes, KPods, and IAM.
+networking, Kubernetes, KPods, Sandboxes, and IAM.
 
 ## Install
 
@@ -22,14 +22,15 @@ You can also install and run the package with standard Python tooling:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install krutrim-mcp-server==1.0.2
+python -m pip install krutrim-mcp-server==1.0.3
 python -m krutrim_mcp_server --version
 ```
 
 On Windows, activate the environment with `.venv\Scripts\activate`.
 
-The current stable release is `1.0.2`. Use
-`uvx krutrim-mcp-server@1.0.2 --version` when you need to pin that exact release.
+Version `1.0.3` adds guarded Sandbox tools. Use
+`uvx krutrim-mcp-server@1.0.3 --version` to pin this version once it is published
+on PyPI.
 Future releases follow Semantic Versioning: fixes increment the patch version,
 backward-compatible features increment the minor version, and breaking changes
 increment the major version.
@@ -183,6 +184,7 @@ one.
 | Create a VPC | `list_vpcs`, then `create_vpc` |
 | Create a VM | `list_vpcs`, `list_subnets`, and `list_compute_flavors` |
 | Create a KPod | `list_kpod_flavors` and `list_kpod_templates` |
+| Create a Sandbox | `list_sandbox_flavors` and `list_sandbox_templates`; see [Sandbox tools](docs/sandbox.md) |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
 | Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
 

@@ -1,8 +1,8 @@
 # Publishing the stdio package
 
-The stable production release candidate is `1.0.0`. This runbook applies only to the local
-stdio package built from `main`. It does not publish or deploy a hosted MCP
-server, container, HTTP transport, ingress configuration, or hosted credentials.
+This runbook covers version `1.0.3` of the local stdio package built from `main`.
+It does not publish or deploy a hosted MCP server, container, HTTP transport,
+ingress configuration, or hosted credentials.
 
 A tag-triggered GitHub Actions workflow builds and validates the wheel and source
 distribution, waits for protected production approval, publishes those exact
@@ -19,8 +19,8 @@ versions and files are immutable.
    when repository policy supports it.
 4. Protect `v*` release tags so only release maintainers can create or update
    them. The workflow rejects a tag whose commit is not on the default branch.
-5. Because the production PyPI project does not exist yet, register a pending
-   Trusted Publisher from the PyPI account publishing page. Use:
+5. Verify the existing PyPI project has the correct Trusted Publisher configured.
+   For a new release repository, add the publisher from the PyPI project settings. Use:
 
    | Setting | Value |
    | --- | --- |
@@ -45,8 +45,9 @@ versions and files are immutable.
 - [ ] CI passes on Python 3.10, 3.11, 3.12, and 3.13.
 - [ ] The required `pip-audit` gate reports no known runtime vulnerabilities.
 - [ ] The release workflow produces a validated CycloneDX runtime SBOM.
-- [ ] Live sandbox smoke tests pass for the supported Phase 1 resource
-      lifecycles.
+- [ ] Live smoke tests pass for the supported Phase 1 resource lifecycles and
+      the new Sandbox lifecycle, commands, files, ports, and proxy tools in an
+      explicitly approved test account. Clean up test resources afterward.
 - [ ] README, user guide, and changelog describe the shipped authentication and
       tool behavior.
 - [ ] No token, key, credential bundle, private material, or local MCP
@@ -72,11 +73,11 @@ uv run --no-sync pip-audit --strict --require-hashes \
   --progress-spinner off \
   --requirement /tmp/krutrim-mcp-runtime-requirements.txt
 uv run --no-sync python -m build --no-isolation \
-  --outdir /tmp/krutrim-mcp-1.0.0
-uv run --no-sync twine check /tmp/krutrim-mcp-1.0.0/*
+  --outdir /tmp/krutrim-mcp-1.0.3
+uv run --no-sync twine check /tmp/krutrim-mcp-1.0.3/*
 uv run --no-sync python scripts/verify_release_artifacts.py local \
-  --dist /tmp/krutrim-mcp-1.0.0 \
-  --version 1.0.0
+  --dist /tmp/krutrim-mcp-1.0.3 \
+  --version 1.0.3
 ```
 
 The local build is diagnostic only. GitHub Actions builds the publishable files
@@ -89,8 +90,8 @@ After every release gate is satisfied, create and push the matching tag from
 
 ```bash
 git switch main
-git tag -s v1.0.0 -m "Release krutrim-mcp-server 1.0.0"
-git push origin v1.0.0
+git tag -s v1.0.3 -m "Release krutrim-mcp-server 1.0.3"
+git push origin v1.0.3
 ```
 
 The `release.yml` workflow then performs this sequence:
@@ -115,8 +116,8 @@ package-content, metadata, and stdio smoke-test results.
 After production publication:
 
 ```bash
-uvx krutrim-mcp-server@1.0.0 --version
-uvx krutrim-mcp-server@1.0.0 --list-tools
+uvx krutrim-mcp-server@1.0.3 --version
+uvx krutrim-mcp-server@1.0.3 --list-tools
 ```
 
 Then connect one supported MCP client with sandbox credentials and invoke a

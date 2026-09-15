@@ -16,6 +16,14 @@ from krutrim_mcp_server.tools import ToolSuccess
 
 _META_TOOLS = {"krutrim_ping", "list_regions"}
 READ_ONLY_TOOLS = {
+    "list_sandbox_templates",
+    "list_sandbox_flavors",
+    "list_sandboxes",
+    "describe_sandbox",
+    "list_sandbox_ports",
+    "list_sandbox_files",
+    "stat_sandbox_file",
+    "read_sandbox_file",
     "describe_instance",
     "describe_instance_template",
     "describe_kks_cluster",
@@ -73,6 +81,8 @@ READ_ONLY_TOOLS = {
     "search_vpcs",
 }
 ADDITIVE_TOOLS = {
+    "create_sandbox",
+    "make_sandbox_directory",
     "add_dns_zone_vpc",
     "attach_policies_to_role",
     "attach_security_group_rule",
@@ -110,6 +120,15 @@ ADDITIVE_TOOLS = {
     "upscale_asg",
 }
 DESTRUCTIVE_TOOLS = {
+    "set_sandbox_ttl",
+    "delete_sandbox",
+    "run_sandbox_command",
+    "open_sandbox_port",
+    "close_sandbox_port",
+    "sandbox_proxy_request",
+    "write_sandbox_file",
+    "delete_sandbox_file",
+    "move_sandbox_file",
     "assign_roles_to_user",
     "attach_floating_ip",
     "change_volume_type",

@@ -58,7 +58,7 @@ def test_tools_registered(server) -> None:
     tools = server._tool_manager.list_tools()
     names = {t.name for t in tools}
     assert names == (READ_ONLY_TOOLS | ADDITIVE_TOOLS | DESTRUCTIVE_TOOLS) - UNAVAILABLE_TOOLS
-    assert len(names) == 138
+    assert len(names) == 157
 
 
 def test_default_catalog_exposes_all_supported_tools(
@@ -66,7 +66,7 @@ def test_default_catalog_exposes_all_supported_tools(
 ) -> None:
     srv = create_server(_settings(tool_profile="core-readonly", enable_sensitive_tools=False))
     tools = srv._tool_manager.list_tools()
-    assert len(tools) == 138
+    assert len(tools) == 157
     assert srv._tool_manager.get_tool("list_compute_flavors") is not None
     assert srv._tool_manager.get_tool("list_gpu_compute_flavors") is not None
     assert srv._tool_manager.get_tool("list_kpod_flavors") is not None

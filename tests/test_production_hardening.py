@@ -142,7 +142,7 @@ def test_unified_catalog_includes_all_supported_tools() -> None:
     assert "list_kpod_flavors" in normal_names
     assert "list_kpod_templates" in normal_names
     assert "validate_dns_zone_vpc" not in normal_names
-    assert len(normal_names) == 138
+    assert len(normal_names) == 157
 
     legacy_profile = create_server(_settings(tool_profile="core-readonly"))
     legacy_names = {tool.name for tool in legacy_profile._tool_manager.list_tools()}
@@ -478,7 +478,7 @@ def test_create_instance_blocks_malformed_flavor_catalog_envelopes(
 
 def test_snapshot_and_backup_schemas_are_explicit_non_idempotent_creates() -> None:
     server = create_server(_settings(tool_profile="storage"))
-    assert len(server._tool_manager.list_tools()) == 138
+    assert len(server._tool_manager.list_tools()) == 157
     snapshot = server._tool_manager.get_tool("create_volume_snapshot")
     backup = server._tool_manager.get_tool("create_volume_backup")
 
@@ -2511,7 +2511,7 @@ def test_doctor_outputs_non_secret_configuration(
     assert payload["ok"] is True
     assert payload["transport"] == "stdio"
     assert payload["catalog"] == "all-supported"
-    assert payload["tool_count"] == 138
+    assert payload["tool_count"] == 157
     assert "profile" not in payload
     assert payload["credentials_configured"] is True
     assert payload["configuration_ready"] is True
@@ -2535,7 +2535,7 @@ def test_legacy_profile_cli_is_ignored_with_warning(
         main(["--doctor", "--profile", "core-readonly"])
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["tool_count"] == 138
+    assert payload["tool_count"] == 157
     assert payload["read_only"] is False
 
 

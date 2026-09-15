@@ -65,6 +65,7 @@ one.
 | Create a VPC | `list_vpcs`, then `create_vpc` |
 | Create a VM | `list_vpcs`, `list_subnets`, and `list_compute_flavors` |
 | Create a KPod | `list_kpod_flavors` and `list_kpod_templates` |
+| Create a Sandbox | `list_sandbox_flavors` and `list_sandbox_templates`; see [Sandbox tools](sandbox.md) |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
 | Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
 
