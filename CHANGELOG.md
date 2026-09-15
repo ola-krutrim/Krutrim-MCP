@@ -18,8 +18,8 @@
   access the MCP host filesystem.
 - Limit proxy requests to Sandbox-relative paths and JSON/UTF-8 bodies; reject
   arbitrary URLs, custom headers, query strings, encoded paths, and redirects.
-- Add offline real-SDK wire-contract tests, MCP protocol round-trip and safety
-  tests, and a Sandbox user guide documenting the supported scope and limits.
+- Add offline real-SDK wire-contract tests, MCP protocol round-trip tests, and
+  safety regression tests.
 
 ### Changed
 
