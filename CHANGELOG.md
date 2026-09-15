@@ -1,48 +1,32 @@
 # Changelog
 
-## 1.0.3 — Unreleased
+## 1.0.3 — 2026-09-15
 
-### Added
+Add guarded Sandbox support to the local stdio package.
 
-- Add 19 Sandbox MCP tools, expanding the supported catalog from 138 to 157:
-  template/flavor discovery, list/describe/create/delete, TTL updates, command
-  execution, file inspection and changes, port management, and HTTP proxying.
-- Require explicit region, template, flavor, and TTL choices for Sandbox creation.
-  Validate the selected template and active flavor against the live Sandbox
-  catalogs; return asynchronous acceptance without polling or automatic cleanup.
-- Require confirmation and writable mode for all mutations, including commands
-  and every proxy method. Opening a port also requires explicit public-exposure
-  approval. Disable automatic SDK retries for Sandbox mutations.
-- Add path/identifier validation, bounded UTF-8 file transfer (1 MiB), credential
-  redaction, and suppression of sensitive SDK error bodies. File operations never
-  access the MCP host filesystem.
-- Limit proxy requests to Sandbox-relative paths and JSON/UTF-8 bodies; reject
-  arbitrary URLs, custom headers, query strings, encoded paths, and redirects.
-- Add offline real-SDK wire-contract tests, MCP protocol round-trip tests, and
-  safety regression tests.
+- Upgrade to `krutrim-client>=0.6.1,<0.7`.
+- Add 19 Sandbox tools for discovery, lifecycle, commands, files, ports, and
+  HTTP proxying, bringing the supported catalog to 157 tools.
+- Require explicit creation choices, mutation confirmation, and separate approval
+  for public ports; disable automatic retries for Sandbox mutations.
+- Validate responses, redact sensitive content, and bound UTF-8 file transfers
+  without accessing the MCP host filesystem.
+- Add SDK compatibility and security regression tests; update package documentation.
 
-### Changed
+## 1.0.2 — 2026-08-21
 
-- Require `krutrim-client>=0.6.1,<0.7` and lock SDK 0.6.1.
-- Retain existing infrastructure compatibility adapters and authentication behavior.
+Update package documentation.
 
-### Security
+- Refresh README installation commands and pinned-version examples.
+- Point the package documentation link to the MCP overview.
 
-- Redact supplied environment values and uploaded content before generic secret
-  filtering, including overlapping matches and secrets echoed in response keys.
-- Parse Sandbox template JSON even when returned as `text/plain`, preserving
-  structured environment redaction.
-- Strictly validate SDK responses without emitting warnings containing backend
-  values; withhold sensitive validation and serialization diagnostics.
-- Reject failed application-level envelopes even on HTTP 200, including file
-  uploads and port closure, while retaining bodyless HTTP 204 success.
+## 1.0.1 — 2026-08-21
 
-### Release verification
+Update SDK and dependency compatibility.
 
-- Local offline tests pass on Python 3.10–3.13: 1,012 passed and 2 skipped per
-  interpreter. Independent security review, Ruff, builds, and artifact checks pass.
-- Live Sandbox lifecycle verification and the supported-Python CI matrix remain
-  release gates; offline transport tests do not prove Cloud service availability.
+- Upgrade to `krutrim-client>=0.6.0,<0.7`.
+- Replace the Pydantic 2.11.0 pin with `pydantic>=2.12.0,<3`.
+- Refresh the dependency lockfile.
 
 ## 1.0.0 — 2026-08-20
 
