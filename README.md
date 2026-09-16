@@ -22,15 +22,15 @@ You can also install and run the package with standard Python tooling:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install krutrim-mcp-server==1.0.3
+python -m pip install krutrim-mcp-server==1.0.4
 python -m krutrim_mcp_server --version
 ```
 
 On Windows, activate the environment with `.venv\Scripts\activate`.
 
-Version `1.0.3` adds guarded Sandbox tools. Use
-`uvx krutrim-mcp-server@1.0.3 --version` to pin this version once it is published
-on PyPI.
+Version `1.0.4` fixes Sandbox flavor selection and makes creation TTL optional.
+The pinned installation commands target this version once it is published on PyPI.
+Use `uvx krutrim-mcp-server@1.0.4 --version` to run that exact release.
 Future releases follow Semantic Versioning: fixes increment the patch version,
 backward-compatible features increment the minor version, and breaking changes
 increment the major version.
@@ -187,6 +187,12 @@ one.
 | Create a Sandbox | `list_sandbox_flavors` and `list_sandbox_templates` |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
 | Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
+
+For `create_sandbox`, `ttl_seconds` is optional. Omit it (or pass `null`) to
+leave `ttlSeconds` out of the request; the server does not invent a TTL default.
+Backend expiry behavior applies when omitted—this does not promise an indefinite
+lifetime. If supplied, use an integer from 60 to 604800 seconds.
+`set_sandbox_ttl` still requires an explicit value.
 
 IAM operations require full IAM KRNs. Use the KRN returned by a list operation;
 do not use a UUID, a display name, or a partial identifier.

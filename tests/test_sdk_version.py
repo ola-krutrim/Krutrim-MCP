@@ -6,7 +6,7 @@ from importlib.metadata import version
 def test_sandbox_release_version_matches_installed_metadata() -> None:
     from krutrim_mcp_server._version import __version__
 
-    assert __version__ == "1.0.3"
+    assert __version__ == "1.0.4"
     assert version("krutrim-mcp-server") == __version__
 
 

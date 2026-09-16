@@ -1,6 +1,6 @@
 # Publishing the stdio package
 
-This runbook covers version `1.0.3` of the local stdio package built from `main`.
+This runbook covers version `1.0.4` of the local stdio package built from `main`.
 It does not publish or deploy a hosted MCP server, container, HTTP transport,
 ingress configuration, or hosted credentials.
 
@@ -73,11 +73,11 @@ uv run --no-sync pip-audit --strict --require-hashes \
   --progress-spinner off \
   --requirement /tmp/krutrim-mcp-runtime-requirements.txt
 uv run --no-sync python -m build --no-isolation \
-  --outdir /tmp/krutrim-mcp-1.0.3
-uv run --no-sync twine check /tmp/krutrim-mcp-1.0.3/*
+  --outdir /tmp/krutrim-mcp-1.0.4
+uv run --no-sync twine check /tmp/krutrim-mcp-1.0.4/*
 uv run --no-sync python scripts/verify_release_artifacts.py local \
-  --dist /tmp/krutrim-mcp-1.0.3 \
-  --version 1.0.3
+  --dist /tmp/krutrim-mcp-1.0.4 \
+  --version 1.0.4
 ```
 
 The local build is diagnostic only. GitHub Actions builds the publishable files
@@ -90,8 +90,8 @@ After every release gate is satisfied, create and push the matching tag from
 
 ```bash
 git switch main
-git tag -s v1.0.3 -m "Release krutrim-mcp-server 1.0.3"
-git push origin v1.0.3
+git tag -s v1.0.4 -m "Release krutrim-mcp-server 1.0.4"
+git push origin v1.0.4
 ```
 
 The `release.yml` workflow then performs this sequence:
@@ -116,8 +116,8 @@ package-content, metadata, and stdio smoke-test results.
 After production publication:
 
 ```bash
-uvx krutrim-mcp-server@1.0.3 --version
-uvx krutrim-mcp-server@1.0.3 --list-tools
+uvx krutrim-mcp-server@1.0.4 --version
+uvx krutrim-mcp-server@1.0.4 --list-tools
 ```
 
 Then connect one supported MCP client with sandbox credentials and invoke a

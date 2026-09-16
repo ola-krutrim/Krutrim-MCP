@@ -69,6 +69,12 @@ one.
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
 | Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
 
+For `create_sandbox`, `ttl_seconds` is optional. Omit it (or pass `null`) to
+leave `ttlSeconds` out of the request; the server does not invent a TTL default.
+Backend expiry behavior applies when omitted—this does not promise an indefinite
+lifetime. If supplied, use an integer from 60 to 604800 seconds.
+`set_sandbox_ttl` still requires an explicit value.
+
 IAM operations require full IAM KRNs. Use the KRN returned by a list operation;
 do not use a UUID, a display name, or a partial identifier.
 

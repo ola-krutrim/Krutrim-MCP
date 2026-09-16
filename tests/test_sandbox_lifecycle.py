@@ -3,6 +3,7 @@
 import importlib
 import importlib.util
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -101,7 +102,7 @@ def test_template_catalog_parses_json_before_redaction(harness, content_type):
     [
         '{"status":500,"message":"opaque-template-secret"}',
         '[{"ID":17,"description":{"secret":"opaque-template-secret"}}]',
-        'not-json opaque-template-secret',
+        "not-json opaque-template-secret",
     ],
     ids=["failed-envelope", "invalid-model", "invalid-json"],
 )
@@ -337,6 +338,480 @@ def test_create_does_not_reflect_supplied_environment_values(harness, http_statu
         assert result.data["data"]["id"] == "sb-1"
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"groupBy": {"flavorStatus": "active", "availability": "Unavailable"}},
+        {"groupBy": {"flavorStatus": "active"}, "availability": "Unavailable"},
+        {"groupBy": {"flavorStatus": "active", "availability": False}},
+        {"groupBy": {"flavorStatus": "active"}},
+    ],
+)
+def test_active_flavor_ignores_availability_labels(harness, metadata):
+    # Representative catalog metadata, not a captured live response.
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {"status": 200, "data": [{"name": "cpu-small", **metadata}]},
+    )
+    result = harness.call("create_sandbox", **CREATE)
+    assert result.data["status"] == 202
+    posts = [r for r in harness.requests if r.method == "POST"]
+    assert len(posts) == 1
+    assert json.loads(posts[0].content)["flavorName"] == "cpu-small"
+    assert json.loads(posts[0].content)["region"] == REGION
+
+
+@pytest.mark.parametrize("http_status", [400, 409, 503])
+def test_unavailable_flavor_does_not_bypass_create_api_failure(harness, http_status):
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {
+            "status": 200,
+            "data": [
+                {
+                    "name": "cpu-small",
+                    "groupBy": {"flavorStatus": "active"},
+                    "availability": "Unavailable",
+                }
+            ],
+        },
+    )
+    harness.replies[("POST", f"{PREFIX}/sandbox")] = (
+        http_status,
+        {"message": "synthetic-private-backend-response"},
+    )
+    with pytest.raises(ToolError, match=f"HTTP {http_status}") as error:
+        harness.call("create_sandbox", **CREATE)
+    assert "synthetic-private-backend-response" not in str(error.value)
+    assert sum(r.method == "POST" for r in harness.requests) == 1
+
+
+def test_duplicate_flavors_remain_ambiguous_regardless_of_availability(harness):
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {
+            "status": 200,
+            "data": [
+                {"name": "cpu-small", "groupBy": {"flavorStatus": "active"}},
+                {"name": "cpu-small", "groupBy": {"flavorStatus": "inactive"}},
+            ],
+        },
+    )
+    with pytest.raises(ToolError, match="missing or ambiguous"):
+        harness.call("create_sandbox", **CREATE)
+    assert all(r.method == "GET" for r in harness.requests)
+
+
+@pytest.mark.parametrize("flavor_status", ["active", "inactive", None])
+def test_flavor_listing_omits_availability_and_status_metadata(harness, flavor_status):
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {
+            "status": 200,
+            "availability": "Unavailable",
+            "data": [
+                {
+                    "name": "sandbox-nano",
+                    "groupBy": {
+                        "flavorStatus": flavor_status,
+                        "availability": "Unavailable",
+                        "price": 1.56,
+                    },
+                    "availability": "Unavailable",
+                    "resources": {
+                        "cpu": 0.25,
+                        "storage": 0.5,
+                        "isAvailable": False,
+                        "zones": [{"name": "zone-1", "available": False}],
+                    },
+                }
+            ],
+        },
+    )
+    result = harness.call("list_sandbox_flavors", region=REGION)
+    entry = result.data["data"][0]
+    assert result.data["status"] == 200
+    assert entry["name"] == "sandbox-nano"
+    assert entry["group_by"] == {"price": 1.56}
+    assert entry["resources"] == {"cpu": 0.25, "storage": 0.5, "zones": [{"name": "zone-1"}]}
+    assert "availability" not in result.model_dump_json().lower()
+    assert "Unavailable" not in result.model_dump_json()
+    assert "flavor_status" not in result.model_dump_json()
+    assert (
+        "Do not display or infer availability" in harness.tool("list_sandbox_flavors").description
+    )
+    assert len(harness.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "region,flavor", [(REGION, "sandbox-nano"), ("In-Hyderabad-1", "sandbox-nano-hyd")]
+)
+@pytest.mark.parametrize("top_level", [{}, {"id": None, "name": None}])
+def test_nested_flavor_name_round_trips_from_listing_to_create(harness, region, flavor, top_level):
+    # Upstream SDK exposes groupBy.flavorname; this is an offline contract fixture.
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {
+            "status": 200,
+            "data": [
+                {
+                    **top_level,
+                    "groupBy": {"flavorname": flavor, "flavorStatus": "active"},
+                    "resources": {"cpu": 0.25},
+                }
+            ],
+        },
+    )
+    result = harness.call("list_sandbox_flavors", region=region)
+    entry = result.data["data"][0]
+    assert entry["name"] == flavor
+    assert entry["id"] is None
+    assert entry["group_by"]["flavorname"] == flavor
+    assert entry["resources"] == {"cpu": 0.25}
+    created = harness.call(
+        "create_sandbox", **(CREATE | {"region": region, "flavor_name": entry["name"]})
+    )
+    assert created.data["status"] == 202
+    posts = [r for r in harness.requests if r.method == "POST"]
+    assert len(posts) == 1
+    assert json.loads(posts[0].content)["flavorName"] == flavor
+    assert json.loads(posts[0].content)["region"] == region
+    assert all(
+        dict(r.url.params) == {"region": region}
+        for r in harness.requests
+        if r.url.path.endswith("/flavors")
+    )
+
+
+def test_create_accepts_null_top_level_name_with_nested_selection(harness):
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {
+            "status": 200,
+            "data": [
+                {
+                    "id": None,
+                    "name": None,
+                    "groupBy": {"flavorname": "cpu-small", "flavorStatus": "active"},
+                }
+            ],
+        },
+    )
+    assert harness.call("create_sandbox", **CREATE).data["status"] == 202
+    assert sum(r.method == "POST" for r in harness.requests) == 1
+
+
+@pytest.mark.parametrize("tool", ["list_sandbox_flavors", "create_sandbox"])
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"id": None, "name": None},
+        {"name": None, "groupBy": {"flavorname": None}},
+        {"name": None, "groupBy": {"flavorname": 123}},
+        {"name": None, "groupBy": {"flavorname": " cpu-small"}},
+        {"name": None, "groupBy": {"flavorname": "cpu-small\n"}},
+        {"name": "", "groupBy": {"flavorname": "cpu-small"}},
+        {"name": 123, "groupBy": {"flavorname": "cpu-small"}},
+        {"name": "other", "groupBy": {"flavorname": "cpu-small"}},
+        {"name": "cpu-small", "groupBy": {"flavorname": "other"}},
+        {"name": "cpu-small", "groupBy": {"flavorname": {"secret": "opaque-catalog-secret"}}},
+    ],
+)
+def test_flavor_name_resolution_rejects_missing_invalid_or_conflicting_names(harness, tool, entry):
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (200, {"status": 200, "data": [entry]})
+    args = CREATE if tool == "create_sandbox" else {"region": REGION}
+    with pytest.raises(ToolError) as error:
+        harness.call(tool, **args)
+    assert "opaque-catalog-secret" not in str(error.value)
+    assert all(r.method == "GET" for r in harness.requests)
+
+
+@pytest.mark.parametrize("nested_name", ["cpu-small", None])
+def test_matching_or_null_nested_name_retains_top_level_selection(harness, nested_name):
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {
+            "status": 200,
+            "data": [
+                {
+                    "name": "cpu-small",
+                    "groupBy": {"flavorname": nested_name, "flavorStatus": "active"},
+                }
+            ],
+        },
+    )
+    assert (
+        harness.call("list_sandbox_flavors", region=REGION).data["data"][0]["name"] == "cpu-small"
+    )
+    assert harness.call("create_sandbox", **CREATE).data["status"] == 202
+
+
+def test_duplicate_flavor_names_across_catalog_shapes_block_create(harness):
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {
+            "status": 200,
+            "data": [
+                {"name": "cpu-small"},
+                {"id": None, "name": None, "groupBy": {"flavorname": "cpu-small"}},
+            ],
+        },
+    )
+    with pytest.raises(ToolError, match="missing or ambiguous"):
+        harness.call("create_sandbox", **CREATE)
+    assert all(r.method == "GET" for r in harness.requests)
+
+
+@pytest.mark.parametrize("status", [500, "200", True])
+@pytest.mark.parametrize("tool", ["list_sandbox_flavors", "create_sandbox"])
+def test_nested_flavor_names_do_not_bypass_catalog_failure(harness, status, tool):
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {
+            "status": status,
+            "message": "opaque-catalog-secret",
+            "data": [{"groupBy": {"flavorname": "cpu-small"}}],
+        },
+    )
+    with pytest.raises(ToolError) as error:
+        harness.call(tool, **(CREATE if tool == "create_sandbox" else {"region": REGION}))
+    assert "opaque-catalog-secret" not in str(error.value)
+    assert all(r.method == "GET" for r in harness.requests)
+
+
+@pytest.mark.parametrize("content_type", ["application/json", "text/plain"])
+def test_nested_flavor_listing_preserves_redaction(harness, content_type):
+    harness.replies[("GET", f"{PREFIX}/flavors")] = httpx.Response(
+        200,
+        content=json.dumps(
+            {
+                "status": 200,
+                "data": [
+                    {
+                        "id": None,
+                        "name": None,
+                        "groupBy": {"flavorname": "cpu-small", "api_key": "opaque-catalog-secret"},
+                        "environment_variables": {"CUSTOM": "opaque-catalog-secret"},
+                    }
+                ],
+            }
+        ),
+        headers={"content-type": content_type},
+    )
+    result = harness.call("list_sandbox_flavors", region=REGION)
+    assert result.data["data"][0]["name"] == "cpu-small"
+    assert "opaque-catalog-secret" not in result.model_dump_json()
+
+
+@pytest.mark.parametrize(
+    "group",
+    [
+        None,
+        {},
+        {"flavorStatus": None},
+        {"flavorStatus": "inactive"},
+        {"flavorStatus": "ACTIVE"},
+        {"flavorStatus": "active "},
+        {"flavorStatus": "Unavailable"},
+        {"flavorStatus": True},
+    ],
+)
+@pytest.mark.parametrize("nested", [False, True])
+def test_create_requires_exact_active_flavor_status(harness, group, nested):
+    prepare_create(harness)
+    entry: dict[str, object] = {"name": "cpu-small", "availability": "Available"}
+    if group is not None:
+        entry["groupBy"] = group
+    if nested:
+        entry["name"] = None
+        entry["groupBy"] = {**(group or {}), "flavorname": "cpu-small"}
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (200, {"status": 200, "data": [entry]})
+    with pytest.raises(ToolError):
+        harness.call("create_sandbox", **CREATE)
+    assert all(r.method == "GET" for r in harness.requests)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "availability",
+        "available",
+        "isAvailable",
+        "is_available",
+        "flavorAvailability",
+        "flavorStatus",
+        "flavor_status",
+    ],
+)
+def test_flavor_listing_omits_capacity_field_aliases(harness, field):
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {
+            "status": 200,
+            "data": [
+                {
+                    "name": "cpu-small",
+                    "groupBy": {"flavorStatus": "active"},
+                    "resources": {"cpu": 1, field: "Unavailable"},
+                }
+            ],
+        },
+    )
+    result = harness.call("list_sandbox_flavors", region=REGION)
+    assert result.data["data"][0]["resources"] == {"cpu": 1}
+    assert "Unavailable" not in result.model_dump_json()
+
+
+def test_hidden_listing_status_is_rechecked_before_create(harness):
+    prepare_create(harness)
+    listed = harness.call("list_sandbox_flavors", region=REGION)
+    assert "flavor_status" not in listed.model_dump_json()
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {"status": 200, "data": [{"name": "cpu-small", "groupBy": {"flavorStatus": "inactive"}}]},
+    )
+    with pytest.raises(ToolError, match="not marked active"):
+        harness.call("create_sandbox", **CREATE)
+    assert sum(r.url.path.endswith("/flavors") for r in harness.requests) == 2
+    assert all(r.method == "GET" for r in harness.requests)
+
+
+def test_active_selection_is_not_blocked_by_other_inactive_flavors(harness):
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {
+            "status": 200,
+            "data": [
+                {"name": "other", "groupBy": {"flavorStatus": "inactive"}},
+                {
+                    "name": "cpu-small",
+                    "groupBy": {"flavorStatus": "active", "availability": "Unavailable"},
+                },
+            ],
+        },
+    )
+    assert harness.call("create_sandbox", **CREATE).data["status"] == 202
+    assert sum(r.method == "POST" for r in harness.requests) == 1
+
+
+@pytest.mark.parametrize("ttl_args", [{}, {"ttl_seconds": None}])
+def test_create_omits_unspecified_ttl_from_sdk_payload(harness, ttl_args):
+    prepare_create(harness)
+    args = {key: value for key, value in CREATE.items() if key != "ttl_seconds"} | ttl_args
+    # Validate the actual MCP input model as well as the real SDK wire payload.
+    validated = harness.tool("create_sandbox").fn_metadata.arg_model.model_validate(args)
+    assert validated.ttl_seconds is None
+    result = harness.call("create_sandbox", **args)
+    assert result.data["status"] == 202
+    posts = [r for r in harness.requests if r.method == "POST"]
+    assert len(posts) == 1
+    assert json.loads(posts[0].content) == {
+        "sandboxName": "demo-1",
+        "region": REGION,
+        "flavorName": "cpu-small",
+        "templateId": 17,
+    }
+
+
+@pytest.mark.parametrize("ttl", [60, 1200, 604800])
+def test_create_sends_explicit_ttl_unchanged(harness, ttl):
+    prepare_create(harness)
+    harness.call("create_sandbox", **(CREATE | {"ttl_seconds": ttl}))
+    assert json.loads(harness.requests[-1].content)["ttlSeconds"] == ttl
+
+
+# Raw catalog supplied by the user; keep its lowercase keys and values intact.
+CAPTURED_FLAVORS = json.loads(
+    (Path(__file__).parent / "fixtures" / "sandbox_flavors_bangalore.json").read_text()
+)
+
+
+@pytest.mark.parametrize(
+    "entry", CAPTURED_FLAVORS["data"], ids=lambda row: row["groupBy"]["flavorname"]
+)
+def test_captured_catalog_flavors_pass_active_preflight(harness, entry):
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (200, CAPTURED_FLAVORS)
+    listed = harness.call("list_sandbox_flavors", region=REGION).data
+    assert len(listed["data"]) == len(CAPTURED_FLAVORS["data"]) == 5
+    name = entry["groupBy"]["flavorname"]
+    public = next(row for row in listed["data"] if row["name"] == name)
+    assert public["group_by"]["cost"] == entry["groupBy"]["cost"]
+    assert public["group_by"]["vcpus"] == entry["groupBy"]["vcpus"]
+    assert public["group_by"]["storage"] == entry["groupBy"]["storage"]
+    assert "flavorstatus" not in public["group_by"]
+    assert "flavor_status" not in public["group_by"]
+    assert "availability" not in public["group_by"]
+    args = {key: value for key, value in CREATE.items() if key != "ttl_seconds"}
+    result = harness.call("create_sandbox", **(args | {"flavor_name": name}))
+    assert result.data["status"] == 202
+    posts = [r for r in harness.requests if r.method == "POST"]
+    assert len(posts) == 1
+    assert json.loads(posts[0].content) == {
+        "sandboxName": "demo-1",
+        "region": REGION,
+        "flavorName": name,
+        "templateId": 17,
+    }
+
+
+@pytest.mark.parametrize(
+    "group",
+    [
+        {"flavorStatus": "active", "flavorstatus": "inactive"},
+        {"flavorStatus": "inactive", "flavorstatus": "active"},
+        {"flavorStatus": "active", "flavorstatus": None},
+        {"flavorStatus": None, "flavorstatus": "active"},
+    ],
+)
+def test_conflicting_status_spellings_block_creation(harness, group):
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {"status": 200, "data": [{"name": "cpu-small", "groupBy": group}]},
+    )
+    with pytest.raises(ToolError):
+        harness.call("create_sandbox", **CREATE)
+    assert all(r.method == "GET" for r in harness.requests)
+
+
+@pytest.mark.parametrize(
+    "status", [None, "inactive", "ACTIVE", "active ", True, 1, {"secret": "opaque-status-secret"}]
+)
+def test_lowercase_status_does_not_bypass_active_gate(harness, status):
+    prepare_create(harness)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {"status": 200, "data": [{"groupBy": {"flavorname": "cpu-small", "flavorstatus": status}}]},
+    )
+    with pytest.raises(ToolError) as error:
+        harness.call("create_sandbox", **CREATE)
+    assert "opaque-status-secret" not in str(error.value)
+    assert all(r.method == "GET" for r in harness.requests)
+
+
+def test_matching_status_spellings_accept_active_without_mutating_catalog(harness):
+    prepare_create(harness)
+    group = {"flavorname": "cpu-small", "flavorstatus": "active", "flavorStatus": "active"}
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {"status": 200, "data": [{"groupBy": group}]},
+    )
+    assert harness.call("create_sandbox", **CREATE).data["status"] == 202
+    assert group == {"flavorname": "cpu-small", "flavorstatus": "active", "flavorStatus": "active"}
+    assert sum(r.method == "POST" for r in harness.requests) == 1
+
+
 def prepare_create(harness):
     harness.replies[("GET", f"{PREFIX}/template")] = (200, TEMPLATES)
     harness.replies[("GET", f"{PREFIX}/flavors")] = (200, FLAVORS)
@@ -406,7 +881,7 @@ def test_create_guards_precede_catalog_client_access(harness, read_only, confirm
             {"sandbox_name": v}
             for v in ["", "1demo", "Demo", "demo_1", "demo-", "a" * 64, " demo", "demo\n", 123]
         ],
-        *[{"ttl_seconds": v} for v in [59, 604801, True, "60", 60.0, None]],
+        *[{"ttl_seconds": v} for v in [59, 604801, True, "60", 60.0]],
         *[{"template_id": v} for v in [None, True, "17", 17.0, 0, -1]],
         {"template_name": "python"},
         {"template_id": None, "template_name": ""},
@@ -477,20 +952,7 @@ def test_create_never_retries_timeout_or_attempts_cleanup(harness):
             {"status": 200, "data": [{"name": "CPU-small", "groupBy": {"flavorStatus": "active"}}]},
             {},
         ),
-        (
-            "flavors",
-            {
-                "status": 200,
-                "data": [{"name": "cpu-small", "groupBy": {"flavorStatus": "inactive"}}],
-            },
-            {},
-        ),
-        ("flavors", {"status": 200, "data": [{"name": "cpu-small"}]}, {}),
-        (
-            "flavors",
-            {"status": 200, "data": [{"name": "cpu-small", "groupBy": {"flavorStatus": "ACTIVE"}}]},
-            {},
-        ),
+        ("flavors", {"status": 200, "data": [{"groupBy": {"flavorStatus": "active"}}]}, {}),
         (
             "flavors",
             {"status": 200, "data": [{"name": 1, "groupBy": {"flavorStatus": "active"}}]},
@@ -653,12 +1115,20 @@ def test_lifecycle_catalog_is_exactly_seven_tools(harness):
 
 def test_published_schemas_expose_required_inputs_and_bounds(harness):
     create = harness.tool("create_sandbox").parameters
-    assert {"sandbox_name", "region", "flavor_name", "ttl_seconds", "confirm"} <= set(
-        create["required"]
-    )
+    assert {"sandbox_name", "region", "flavor_name", "confirm"} <= set(create["required"])
+    assert "ttl_seconds" not in create["required"]
     assert create["properties"]["sandbox_name"]["maxLength"] == 63
-    assert create["properties"]["ttl_seconds"]["minimum"] == 60
-    assert create["properties"]["ttl_seconds"]["maximum"] == 604800
+    ttl = create["properties"]["ttl_seconds"]
+    assert ttl["default"] is None
+    assert "Optional" in ttl["description"]
+    assert "omitted" in ttl["description"]
+    bounds = next(s for s in ttl["anyOf"] if s.get("type") == "integer")
+    assert bounds["minimum"] == 60
+    assert bounds["maximum"] == 604800
+    assert {"type": "null"} in ttl["anyOf"]
+    setter = harness.tool("set_sandbox_ttl").parameters
+    assert "ttl_seconds" in setter["required"]
+    assert setter["properties"]["ttl_seconds"]["type"] == "integer"
     assert create["properties"]["confirm"]["type"] == "boolean"
     assert create["properties"]["region"]["enum"] == ["In-Bangalore-1", "In-Hyderabad-1"]
     network = next(
@@ -728,9 +1198,9 @@ def test_create_rechecks_catalog_before_every_post(harness):
     harness.call("create_sandbox", **CREATE)
     harness.replies[("GET", f"{PREFIX}/flavors")] = (
         200,
-        {"status": 200, "data": [{"name": "cpu-small", "groupBy": {"flavorStatus": "inactive"}}]},
+        {"status": 200, "data": []},
     )
-    with pytest.raises(ToolError, match="not active"):
+    with pytest.raises(ToolError, match="missing or ambiguous"):
         harness.call("create_sandbox", **CREATE)
     assert sum(r.method == "POST" for r in harness.requests) == 1
     assert sum(r.url.path.endswith("/flavors") for r in harness.requests) == 2

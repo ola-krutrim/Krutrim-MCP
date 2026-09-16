@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.4 — 2026-09-16
+
+Fix Sandbox creation and improve setup options.
+
+- Fix flavor selection errors that blocked Sandbox creation.
+- Hide unreliable flavor availability labels from discovery results.
+- Make creation TTL optional; use backend expiry behavior when omitted.
+
 ## 1.0.3 — 2026-09-15
 
 Add guarded Sandbox support to the local stdio package.

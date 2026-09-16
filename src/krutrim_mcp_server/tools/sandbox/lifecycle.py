@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
 from krutrim_client import APIError
-from krutrim_client.types.sandbox import PodTemplate
+from krutrim_client.types.sandbox import FlavorListResponse, PodTemplate
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -14,6 +14,7 @@ from pydantic import (
     StrictStr,
     TypeAdapter,
     ValidationError,
+    model_validator,
 )
 
 from krutrim_mcp_server.client import get_session
@@ -68,13 +69,40 @@ class _Template(_CatalogModel):
     supported_services: list[Literal["endpoint", "aipod", "sandbox"]] | None = None
 
 
-class _FlavorStatus(_CatalogModel):
-    flavor_status: Literal["active", "inactive"] = Field(alias="flavorStatus")
+class _FlavorGroup(_CatalogModel):
+    flavor_status: StrictStr | None = Field(alias="flavorStatus", default=None)
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_status_spelling(cls, value: Any) -> Any:
+        # Deployed catalogs use lowercase; SDK 0.6.1 declares camelCase.
+        if not isinstance(value, dict) or "flavorstatus" not in value:
+            return value
+        if "flavorStatus" in value and value["flavorStatus"] != value["flavorstatus"]:
+            raise ValueError("Conflicting Sandbox flavor status fields")
+        # Preserve the value exactly: aliases do not relax the active-only rule.
+        return {**value, "flavorStatus": value["flavorstatus"]}
 
 
 class _Flavor(_CatalogModel):
     name: SelectionName
-    group_by: _FlavorStatus = Field(alias="groupBy")
+    group_by: _FlavorGroup | None = Field(alias="groupBy", default=None)
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_catalog_name(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        group = value.get("groupBy")
+        nested_name = group.get("flavorname") if isinstance(group, dict) else None
+        if nested_name is None:
+            return value
+        # Never coerce, trim, or silently choose between conflicting identifiers.
+        TypeAdapter(SelectionName).validate_python(nested_name)
+        name = value.get("name")
+        if name is not None and name != nested_name:
+            raise ValueError("Conflicting Sandbox flavor names")
+        return {**value, "name": nested_name}
 
 
 class _Flavors(_CatalogModel):
@@ -119,8 +147,29 @@ def _require_live_selection(
     selected = [item for item in flavors.data if item.name == flavor_name]
     if len(selected) != 1:
         raise ValueError("Sandbox flavor selection is missing or ambiguous in the live catalog")
-    if selected[0].group_by.flavor_status != "active":
-        raise ValueError("Selected Sandbox flavor is not active")
+    group = selected[0].group_by
+    if group is None or group.flavor_status != "active":
+        raise ValueError("Selected Sandbox flavor is not marked active; creation blocked")
+
+
+def _omit_flavor_availability(value: Any) -> Any:
+    """Remove capacity labels from public catalogs, never from raw preflight data."""
+    if isinstance(value, dict):
+        return {
+            key: _omit_flavor_availability(item)
+            for key, item in value.items()
+            if key.replace("_", "").replace("-", "").lower()
+            not in {
+                "availability",
+                "available",
+                "isavailable",
+                "flavoravailability",
+                "flavorstatus",
+            }
+        }
+    if isinstance(value, list):
+        return [_omit_flavor_availability(item) for item in value]
+    return value
 
 
 def _run_lifecycle_tool(fn: Callable[[], Any]) -> ToolSuccess:
@@ -169,17 +218,32 @@ def register(mcp: Any) -> None:
         sandbox_name: SandboxName,
         region: Annotated[Region, REGION_FIELD],
         flavor_name: SelectionName,
-        ttl_seconds: TTL,
         confirm: Annotated[StrictBool, CONFIRM_FIELD],
+        ttl_seconds: Annotated[
+            TTL | None,
+            Field(
+                description=(
+                    "Optional TTL in seconds (60–604800). When omitted or null, ttlSeconds "
+                    "is not sent; backend expiry behavior applies. No client default is assumed."
+                )
+            ),
+        ] = None,
         template_id: TemplateID | None = None,
         template_name: SelectionName | None = None,
         environment_variables: Environment | None = None,
         network_storages: NetworkStorages | None = None,
     ) -> ToolSuccess:
-        """Request a Sandbox using an exact live template and active flavor.
+        """Request a Sandbox using an exact live template and flavor.
 
-        Select exactly one template_id or template_name; no template or TTL is
-        inferred. A deploying/accepted result is not readiness. Use describe_sandbox
+        Creation requires the selected flavor's live status (flavorstatus or
+        flavorStatus) to be exactly active. Ignore separate availability labels;
+        after explicit confirmation, attempt creation once. The create API decides
+        provisioning acceptance, which does not guarantee readiness.
+        Select exactly one template_id or template_name; no template is inferred.
+        TTL is optional: omit ttl_seconds to leave ttlSeconds out of the request.
+        Explain that backend expiry behavior applies; do not invent a default or
+        promise indefinite lifetime. Explicit TTL values must be 60–604800 seconds.
+        A deploying/accepted result is not readiness. Use describe_sandbox
         separately to inspect progress; this tool never connects, polls, or cleans up.
         """
 
@@ -189,7 +253,7 @@ def register(mcp: Any) -> None:
             TypeAdapter(SandboxName).validate_python(sandbox_name)
             TypeAdapter(Region).validate_python(region)
             TypeAdapter(SelectionName).validate_python(flavor_name)
-            TypeAdapter(TTL).validate_python(ttl_seconds)
+            TypeAdapter(TTL | None).validate_python(ttl_seconds)
             TypeAdapter(TemplateID | None).validate_python(template_id)
             TypeAdapter(SelectionName | None).validate_python(template_name)
             if (template_id is None) == (template_name is None):
@@ -272,11 +336,53 @@ def register(mcp: Any) -> None:
 
     @mcp.tool()
     def list_sandbox_flavors(region: Annotated[Region, REGION_FIELD]) -> ToolSuccess:
-        """List live flavors in the selected region; only active entries are selectable."""
+        """List flavor names, resources, and pricing in the selected region.
+
+        Names come from name or groupBy.flavorname; a missing/null flavor ID is
+        valid because creation uses the exact name, not an ID.
+        Do not display or infer availability: capacity labels and flavor status
+        are omitted from this view. Listing is not a guarantee of capacity or
+        eligibility. Missing display fields do not establish an upstream problem.
+        Do not poll this tool waiting for hidden fields to reappear, or refuse a
+        confirmed creation solely because this view omits status. create_sandbox
+        independently checks the raw live catalog for active status (flavorstatus
+        or flavorStatus) and
+        attempts provisioning once; report its actual result, not an inferred error.
+        """
 
         def _run() -> Any:
             TypeAdapter(Region).validate_python(region)
-            return get_session().get_client().sandbox.api.list_flavors(region=region)
+            raw = (
+                get_session().get_client().sandbox.api.with_raw_response.list_flavors(region=region)
+            )
+            try:
+                body = raw.json()
+                if not isinstance(body, dict):
+                    raise ValueError("Expected a Sandbox flavor catalog object")
+                catalog = _Flavors.model_validate(body)
+                # Share preflight name resolution while preserving SDK output
+                # fields, aliases, metadata, and structured secret redaction.
+                normalized = {
+                    **body,
+                    "data": [
+                        {**item, "name": flavor.name}
+                        for item, flavor in zip(body["data"], catalog.data, strict=True)
+                    ],
+                }
+                response = FlavorListResponse.model_validate(normalized, strict=True)
+                # Check the original envelope and redact secrets before shaping
+                # display data. Creation always re-reads the unfiltered catalog.
+                public_catalog = _omit_flavor_availability(safe_response(response))
+                public_catalog["selection_guidance"] = (
+                    "Capacity and status fields are intentionally omitted from this display view. "
+                    "Their absence is not evidence that fields are missing upstream or that "
+                    "creation is blocked. Do not poll this view for hidden fields. Use an exact "
+                    "listed name with create_sandbox after explicit confirmation; that tool "
+                    "checks the unfiltered live catalog and returns the actual outcome."
+                )
+                return public_catalog
+            except ValueError:
+                raise ValueError("Invalid Sandbox flavor response; details withheld") from None
 
         return _run_lifecycle_tool(_run)
 

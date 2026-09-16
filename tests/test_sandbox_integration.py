@@ -1,5 +1,7 @@
 """Sandbox tools are reachable through the guarded MCP protocol catalog."""
 
+import json
+
 import httpx
 import pytest
 from krutrim_client import KrutrimClient
@@ -62,6 +64,77 @@ def test_sandbox_catalog_and_explicit_safety_policies():
             assert "confirm" in tool.parameters["required"]
     for name in ("list_sandbox_flavors", "list_sandboxes", "create_sandbox"):
         assert "region" in tools[name].parameters["required"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ttl_args", [{}, {"ttl_seconds": None}, {"ttl_seconds": 1200}])
+@pytest.mark.parametrize("status_key", ["flavorStatus", "flavorstatus"])
+async def test_create_protocol_supports_optional_ttl(monkeypatch, ttl_args, status_key):
+    captured = []
+
+    def handler(request):
+        captured.append(request)
+        if request.url.path.endswith("/template"):
+            return httpx.Response(200, json=[{"ID": 4, "template_name": "python"}])
+        if request.url.path.endswith("/flavors"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": 200,
+                    "data": [
+                        {
+                            "groupBy": {"flavorname": "sandbox-nano", status_key: "active"},
+                        }
+                    ],
+                },
+            )
+        assert request.method == "POST"
+        assert request.url.path == "/omni/sandbox/v1/sandbox"
+        return httpx.Response(202, json={"status": 202, "data": {"id": "sandbox-1"}})
+
+    server = create_server(_settings())
+    with KrutrimClient(
+        api_key="synthetic-test-token",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    ) as sdk:
+        monkeypatch.setattr(get_session(), "get_client", lambda: sdk)
+        async with create_connected_server_and_client_session(server._mcp_server) as client:
+            listing = await client.call_tool("list_sandbox_flavors", {"region": "In-Bangalore-1"})
+            assert listing.isError is False
+            public_catalog = listing.structuredContent["data"]
+            assert public_catalog["data"][0]["name"] == "sandbox-nano"
+            assert "flavor_status" not in json.dumps(public_catalog["data"])
+            assert "flavorStatus" not in json.dumps(public_catalog["data"])
+            guidance = public_catalog["selection_guidance"]
+            assert "intentionally omitted" in guidance
+            assert "not evidence" in guidance
+            assert "Do not poll" in guidance
+            result = await client.call_tool(
+                "create_sandbox",
+                {
+                    "sandbox_name": "ttl-test",
+                    "region": "In-Bangalore-1",
+                    "flavor_name": "sandbox-nano",
+                    "template_id": 4,
+                    "confirm": True,
+                    **ttl_args,
+                },
+            )
+            assert result.isError is False
+            assert result.structuredContent["data"]["status"] == 202
+    assert sum(r.url.path.endswith("/flavors") for r in captured) == 2
+    posts = [r for r in captured if r.method == "POST"]
+    assert len(posts) == 1
+    body = json.loads(posts[0].content)
+    expected = {
+        "sandboxName": "ttl-test",
+        "region": "In-Bangalore-1",
+        "flavorName": "sandbox-nano",
+        "templateId": 4,
+    }
+    if ttl_args.get("ttl_seconds") is not None:
+        expected["ttlSeconds"] = ttl_args["ttl_seconds"]
+    assert body == expected
 
 
 @pytest.mark.asyncio
