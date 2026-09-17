@@ -48,16 +48,40 @@ def _settings() -> Settings:
     )
 
 
-def _network_inventory(*, subnet_id: str = _SUBNET_KRN) -> list[dict[str, object]]:
-    return [
-        {
-            "vpc_id": _VPC_KRN,
-            "network_id": _NETWORK_KRN,
-            "name": "example-network",
-            "status": "ACTIVE",
-            "subnets": [subnet_id],
+def _vpc_detail(*, subnet_ids: list[str] | None = None) -> dict[str, object]:
+    """The shape ``retrieve_vpc`` actually returns.
+
+    Subnets live under ``data.tasks[field="subnet"].subnet_list[].krn``. This is the
+    only response that carries them: ``search_network`` returns network rows with no
+    ``subnets`` key at all, which is why the previous fixture -- a network row with a
+    ``subnets`` list -- described a payload the API never produces.
+    """
+    ids = [_SUBNET_KRN] if subnet_ids is None else subnet_ids
+    return {
+        "data": {
+            "tasks": [
+                {"field": "vpc", "name": "example-vpc", "status": "success"},
+                {
+                    "field": "network",
+                    "krn": _NETWORK_KRN,
+                    "name": "example-network",
+                    "status": "success",
+                },
+                {
+                    "field": "subnet",
+                    "subnet_list": [
+                        {
+                            "krn": subnet_id,
+                            "name": "example-subnet",
+                            "cidr": "10.0.1.0/24",
+                            "status": "success",
+                        }
+                        for subnet_id in ids
+                    ],
+                },
+            ]
         }
-    ]
+    }
 
 
 def _create_instance_args(*, subnet_id: str) -> dict[str, object]:
@@ -84,7 +108,7 @@ def test_list_subnets_emits_selection_safe_subnet_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mock_client = MagicMock()
-    mock_client.highlvlvpc.search_networks.return_value = _network_inventory()
+    mock_client.highlvlvpc.retrieve_vpc.return_value = _vpc_detail()
     server = create_server(_settings())
     _use_client(monkeypatch, mock_client)
 
@@ -99,9 +123,9 @@ def test_list_subnets_emits_selection_safe_subnet_ids(
         "subnets": [
             {
                 "subnet_id": _SUBNET_KRN,
-                "parent_network_id": _NETWORK_KRN,
-                "network_name": "example-network",
-                "network_status": "ACTIVE",
+                "name": "example-subnet",
+                "cidr": "10.0.1.0/24",
+                "status": "success",
             }
         ],
         "guidance": (
@@ -140,9 +164,7 @@ def test_create_instance_verifies_and_forwards_an_exact_subnet_krn(
     subnet_id: str,
 ) -> None:
     mock_client = MagicMock()
-    mock_client.highlvlvpc.search_networks.return_value = _network_inventory(
-        subnet_id=subnet_id
-    )
+    mock_client.highlvlvpc.retrieve_vpc.return_value = _vpc_detail(subnet_ids=[subnet_id])
     mock_client.highlvlvpc.create_instance.return_value = {"task_id": "task-1"}
     server = create_server(_settings())
     _use_client(monkeypatch, mock_client)
@@ -153,8 +175,8 @@ def test_create_instance_verifies_and_forwards_an_exact_subnet_krn(
     )
 
     assert result.ok is True
-    assert mock_client.highlvlvpc.search_networks.call_args.kwargs["vpc_id"] == _VPC_KRN
-    assert mock_client.highlvlvpc.search_networks.call_args.kwargs["x_region"] == "In-Bangalore-1"
+    assert mock_client.highlvlvpc.retrieve_vpc.call_args.kwargs["vpc_id"] == _VPC_KRN
+    assert mock_client.highlvlvpc.retrieve_vpc.call_args.kwargs["x_region"] == "In-Bangalore-1"
     assert mock_client.highlvlvpc.create_instance.call_args.kwargs["subnet_id"] == subnet_id
 
 
@@ -162,7 +184,9 @@ def test_create_instance_rejects_subnet_not_belonging_to_selected_vpc(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mock_client = MagicMock()
-    mock_client.highlvlvpc.search_networks.return_value = _network_inventory()
+    # A populated inventory, so this fails because the subnet is absent from it --
+    # not merely because the mock returned nothing.
+    mock_client.highlvlvpc.retrieve_vpc.return_value = _vpc_detail()
     server = create_server(_settings())
     _use_client(monkeypatch, mock_client)
     foreign_subnet = _SUBNET_KRN.replace("000000000003", "000000000004")
@@ -179,21 +203,13 @@ def test_create_instance_rejects_ambiguous_subnet_inventory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mock_client = MagicMock()
-    duplicate_owner = _network_inventory()
-    duplicate_owner.append(
-        {
-            "vpc_id": _VPC_KRN,
-            "network_id": _NETWORK_KRN.replace("000000000002", "000000000004"),
-            "name": "another-network",
-            "status": "ACTIVE",
-            "subnets": [_SUBNET_KRN],
-        }
+    mock_client.highlvlvpc.retrieve_vpc.return_value = _vpc_detail(
+        subnet_ids=[_SUBNET_KRN, _SUBNET_KRN]
     )
-    mock_client.highlvlvpc.search_networks.return_value = duplicate_owner
     server = create_server(_settings())
     _use_client(monkeypatch, mock_client)
 
-    with pytest.raises(ToolError, match="appears in multiple networks"):
+    with pytest.raises(ToolError, match="appears more than once"):
         server._tool_manager.get_tool("create_instance").fn(
             **_create_instance_args(subnet_id=_SUBNET_KRN)
         )
@@ -227,3 +243,37 @@ def test_create_instance_template_rejects_network_krn_before_client_access(
         )
 
     get_client.assert_not_called()
+
+
+def test_list_subnets_does_not_read_the_network_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: the network listing has no subnets, so it must not be the source.
+
+    This is the shape ``search_network`` really returns for a VPC that HAS subnets --
+    ``krn_id`` rather than ``network_id``, and no ``subnets`` key at all. Reading it
+    yielded an empty inventory, which made ``list_subnets`` report none and
+    ``create_instance`` refuse every subnet, for every user. The failure was invisible
+    because the old fixture invented a ``subnets`` field the API never sends.
+    """
+    mock_client = MagicMock()
+    mock_client.highlvlvpc.search_networks.return_value = [
+        {
+            "krn_id": _NETWORK_KRN,
+            "name": "example-network",
+            "status": "ACTIVE",
+            "vpc_id": _VPC_KRN,
+        }
+    ]
+    mock_client.highlvlvpc.retrieve_vpc.return_value = _vpc_detail()
+    server = create_server(_settings())
+    _use_client(monkeypatch, mock_client)
+
+    result = server._tool_manager.get_tool("list_subnets").fn(
+        vpc_id=_VPC_KRN,
+        region="In-Bangalore-1",
+    )
+
+    assert result.ok is True
+    assert [row["subnet_id"] for row in result.data["subnets"]] == [_SUBNET_KRN]
+    mock_client.highlvlvpc.search_networks.assert_not_called()

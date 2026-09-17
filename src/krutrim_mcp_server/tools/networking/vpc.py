@@ -17,7 +17,7 @@ from krutrim_mcp_server.tools import (
     run_tool,
     settings,
 )
-from krutrim_mcp_server.tools.networking.subnets import subnet_inventory
+from krutrim_mcp_server.tools.networking.subnets import subnet_inventory_from_vpc
 
 _INACTIVE_VPC_STATUSES = frozenset(
     {
@@ -142,11 +142,13 @@ def register(mcp: Any) -> None:
 
         def _run() -> Any:
             client = get_session().get_client()
-            response = client.highlvlvpc.search_networks(
+            # The VPC description is the only payload that carries subnets;
+            # search_network has no subnets field. See subnets_from_vpc_detail.
+            response = client.highlvlvpc.retrieve_vpc(
                 vpc_id=vpc_id,
                 x_region=resolve_region(region),
             )
-            return subnet_inventory(response, vpc_id=vpc_id)
+            return subnet_inventory_from_vpc(response, vpc_id=vpc_id)
 
         return run_tool(_run)
 
