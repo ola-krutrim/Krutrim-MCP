@@ -6,7 +6,12 @@ from typing import Annotated, Any
 from krutrim_client import KrutrimClient
 from pydantic import Field
 
-from krutrim_mcp_server.adapters.vpc import create_vpc_without_security_fields
+from krutrim_mcp_server.adapters.vpc import (
+    create_vpc_without_security_fields,
+)
+from krutrim_mcp_server.adapters.vpc import (
+    delete_subnet as delete_subnet_api,
+)
 from krutrim_mcp_server.client import get_session
 from krutrim_mcp_server.guards import ensure_confirmed, ensure_writable
 from krutrim_mcp_server.tools import (
@@ -17,7 +22,7 @@ from krutrim_mcp_server.tools import (
     run_tool,
     settings,
 )
-from krutrim_mcp_server.tools.networking.subnets import subnet_inventory
+from krutrim_mcp_server.tools.networking.subnets import subnet_inventory_from_vpc
 
 _INACTIVE_VPC_STATUSES = frozenset(
     {
@@ -142,11 +147,13 @@ def register(mcp: Any) -> None:
 
         def _run() -> Any:
             client = get_session().get_client()
-            response = client.highlvlvpc.search_networks(
+            # The VPC description is the only payload that carries subnets;
+            # search_network has no subnets field. See subnets_from_vpc_detail.
+            response = client.highlvlvpc.retrieve_vpc(
                 vpc_id=vpc_id,
                 x_region=resolve_region(region),
             )
-            return subnet_inventory(response, vpc_id=vpc_id)
+            return subnet_inventory_from_vpc(response, vpc_id=vpc_id)
 
         return run_tool(_run)
 
@@ -242,6 +249,41 @@ def register(mcp: Any) -> None:
             }
             return client.highlvlvpc.create_subnet(
                 subnet_data=subnet_data,
+                vpc_id=vpc_id,
+                x_region=resolve_region(region),
+            )
+
+        return run_tool(_run)
+
+    @mcp.tool()
+    def delete_subnet(
+        vpc_id: str,
+        subnet_id: str,
+        region: Region = REGION_FIELD,
+        confirm: bool = CONFIRM_FIELD,
+    ) -> str:
+        """Delete a subnet from a VPC.
+
+        Both vpc_id and subnet_id must be FULL Krutrim KRNs including the real
+        account UUID; KRNs copied from listings with a masked ':***:' account
+        segment are rejected — replace '***' with the account UUID first.
+        The subnet must have no attached ports or instances.
+        """
+
+        def _run() -> Any:
+            ensure_writable(settings(), "delete_subnet")
+            ensure_confirmed(confirm, "delete_subnet", subnet_id)
+            for label, value in (("vpc_id", vpc_id), ("subnet_id", subnet_id)):
+                if ":***:" in value:
+                    raise ValueError(
+                        f"{label} contains a masked account segment (':***:'); "
+                        "replace '***' with the real account UUID before calling "
+                        "delete_subnet"
+                    )
+            client = get_session().get_client()
+            return delete_subnet_api(
+                client,
+                subnet_id=subnet_id,
                 vpc_id=vpc_id,
                 x_region=resolve_region(region),
             )

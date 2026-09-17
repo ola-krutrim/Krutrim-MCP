@@ -11,7 +11,6 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from krutrim_mcp_server.config import Settings
 from krutrim_mcp_server.server import create_server
-from tests.auth_tokens import TEST_ACCESS_TOKEN, TEST_REFRESH_TOKEN
 
 VPC_KRN = (
     "krn:vpc:In-Bangalore-1:customer-test:account-test:vpc:"
@@ -45,7 +44,7 @@ INSTANCE_KRN = (
 
 def _settings(**overrides: object) -> Settings:
     values = {
-        "api_key": None,
+        "api_key": "test-api-key-for-offline-tests",
         "base_url": "https://cloud.olakrutrim.com",
         "default_region": "In-Bangalore-1",
         "read_only": False,
@@ -53,8 +52,6 @@ def _settings(**overrides: object) -> Settings:
         "client_max_retries": 0,
         "tool_profile": "admin",
         "enable_sensitive_tools": True,
-        "access_token": TEST_ACCESS_TOKEN,
-        "refresh_token": TEST_REFRESH_TOKEN,
     }
     values.update(overrides)
     return Settings(**values)  # type: ignore[arg-type]

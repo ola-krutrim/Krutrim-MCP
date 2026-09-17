@@ -12,10 +12,8 @@ def format_error(exc: BaseException) -> str:
     status = getattr(exc, "status_code", None)
     if status == 401:
         return (
-            "Authentication failed (401). The access-token session may need to be "
-            "renewed. Complete any required IAM MFA verification or sign in again, "
-            "then replace both "
-            "KRUTRIM_ACCESS_TOKEN and KRUTRIM_REFRESH_TOKEN."
+            "Authentication failed (401). Check that KRUTRIM_API_KEY contains a valid "
+            "Krutrim Cloud API key, and replace it if it has expired or been revoked."
         )
     if status == 403:
         return (

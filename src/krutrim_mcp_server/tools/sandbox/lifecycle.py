@@ -152,26 +152,6 @@ def _require_live_selection(
         raise ValueError("Selected Sandbox flavor is not marked active; creation blocked")
 
 
-def _omit_flavor_availability(value: Any) -> Any:
-    """Remove capacity labels from public catalogs, never from raw preflight data."""
-    if isinstance(value, dict):
-        return {
-            key: _omit_flavor_availability(item)
-            for key, item in value.items()
-            if key.replace("_", "").replace("-", "").lower()
-            not in {
-                "availability",
-                "available",
-                "isavailable",
-                "flavoravailability",
-                "flavorstatus",
-            }
-        }
-    if isinstance(value, list):
-        return [_omit_flavor_availability(item) for item in value]
-    return value
-
-
 def _run_lifecycle_tool(fn: Callable[[], Any]) -> ToolSuccess:
     def protected() -> Any:
         try:
@@ -223,8 +203,10 @@ def register(mcp: Any) -> None:
             TTL | None,
             Field(
                 description=(
-                    "Optional TTL in seconds (60–604800). When omitted or null, ttlSeconds "
-                    "is not sent; backend expiry behavior applies. No client default is assumed."
+                    "Optional expiry (TTL): how long the sandbox remains active. "
+                    "Supported duration: 1 minute to 7 days (60–604800 seconds). "
+                    "When omitted or null, ttlSeconds is not sent; the backend default "
+                    "is one hour (3600 seconds)."
                 )
             ),
         ] = None,
@@ -240,9 +222,11 @@ def register(mcp: Any) -> None:
         after explicit confirmation, attempt creation once. The create API decides
         provisioning acceptance, which does not guarantee readiness.
         Select exactly one template_id or template_name; no template is inferred.
-        TTL is optional: omit ttl_seconds to leave ttlSeconds out of the request.
-        Explain that backend expiry behavior applies; do not invent a default or
-        promise indefinite lifetime. Explicit TTL values must be 60–604800 seconds.
+        Expiry (TTL) specifies how long the sandbox remains active. The default is
+        one hour (3600 seconds). Supported duration: 1 minute to 7 days
+        (60–604800 seconds). Explain this expiry before requesting confirmation.
+        TTL is optional: omit ttl_seconds (or pass null) to leave ttlSeconds out of
+        the request and let the backend apply its default; not an indefinite lifetime.
         A deploying/accepted result is not readiness. Use describe_sandbox
         separately to inspect progress; this tool never connects, polls, or cleans up.
         """
@@ -292,7 +276,10 @@ def register(mcp: Any) -> None:
         ttl_seconds: TTL,
         confirm: Annotated[StrictBool, CONFIRM_FIELD],
     ) -> ToolSuccess:
-        """Set a Sandbox TTL (60–604800 seconds) after explicit approval; never poll."""
+        """Set Sandbox expiry: 1 minute to 7 days (60–604800 seconds).
+
+        An explicit duration and approval are required; never poll.
+        """
 
         def _run() -> Any:
             ensure_writable(settings(), "set_sandbox_ttl")
@@ -340,14 +327,12 @@ def register(mcp: Any) -> None:
 
         Names come from name or groupBy.flavorname; a missing/null flavor ID is
         valid because creation uses the exact name, not an ID.
-        Do not display or infer availability: capacity labels and flavor status
-        are omitted from this view. Listing is not a guarantee of capacity or
-        eligibility. Missing display fields do not establish an upstream problem.
-        Do not poll this tool waiting for hidden fields to reappear, or refuse a
-        confirmed creation solely because this view omits status. create_sandbox
-        independently checks the raw live catalog for active status (flavorstatus
-        or flavorStatus) and
-        attempts provisioning once; report its actual result, not an inferred error.
+        Display the backend-reported availability and flavor status when present.
+        These fields are a live snapshot, not a guarantee of capacity or eligibility.
+        Missing fields mean unknown availability, not available or unavailable.
+        create_sandbox independently rechecks the live catalog for active status
+        (flavorstatus or flavorStatus) and attempts provisioning once after explicit
+        confirmation; report its actual result, not an inferred error.
         """
 
         def _run() -> Any:
@@ -372,13 +357,27 @@ def register(mcp: Any) -> None:
                 response = FlavorListResponse.model_validate(normalized, strict=True)
                 # Check the original envelope and redact secrets before shaping
                 # display data. Creation always re-reads the unfiltered catalog.
-                public_catalog = _omit_flavor_availability(safe_response(response))
+                public_catalog = safe_response(response)
+                # SDK 0.6.2 reshaped the flavor model: groupBy.flavor_status
+                # became a non-serialized property and the top-level id field
+                # was dropped. Preserve the published output contract so
+                # existing callers keep working on both SDK versions.
+                for entry in public_catalog.get("data") or []:
+                    if isinstance(entry, dict):
+                        entry.setdefault("id", None)
+                        group = entry.get("group_by")
+                        if isinstance(group, dict) and group.get("flavor_status") is None:
+                            group["flavor_status"] = (
+                                group.get("flavorstatus")
+                                if group.get("flavorstatus") is not None
+                                else group.get("flavorStatus")
+                            )
                 public_catalog["selection_guidance"] = (
-                    "Capacity and status fields are intentionally omitted from this display view. "
-                    "Their absence is not evidence that fields are missing upstream or that "
-                    "creation is blocked. Do not poll this view for hidden fields. Use an exact "
-                    "listed name with create_sandbox after explicit confirmation; that tool "
-                    "checks the unfiltered live catalog and returns the actual outcome."
+                    "Backend-reported availability and flavor status are a live snapshot, "
+                    "not a guarantee of capacity. Missing fields mean unknown availability. "
+                    "Use an exact listed name with create_sandbox after explicit confirmation; "
+                    "that tool rechecks active status in the live catalog and returns the "
+                    "actual provisioning outcome."
                 )
                 return public_catalog
             except ValueError:

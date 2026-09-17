@@ -1,7 +1,9 @@
 """Compute (VM / image) MCP tools."""
 
+import json
 from typing import Annotated, Any, List, Literal, Optional
 
+from krutrim_client import APITimeoutError
 from pydantic import Field
 
 from krutrim_mcp_server.adapters.compute import (
@@ -29,6 +31,35 @@ from krutrim_mcp_server.tools.networking.subnets import (
 )
 
 PositiveSize = Annotated[int, Field(ge=1)]
+
+
+def _with_parsed_ip_addresses(result: Any) -> Any:
+    """Decode the ip_addresses JSON-string field into a structure.
+
+    The backend returns ip_addresses as a JSON string embedded in the JSON
+    response (issue ola-krutrim/Krutrim-MCP#5); parse it so callers get a real
+    list instead of double-encoded JSON. Anything unparseable is left as-is.
+    """
+    items = result if isinstance(result, list) else [result]
+    for item in items:
+        if isinstance(item, dict):
+            raw = item.get("ip_addresses")
+        else:
+            raw = getattr(item, "ip_addresses", None)
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(item, dict):
+                item["ip_addresses"] = parsed
+            else:
+                try:
+                    item.ip_addresses = parsed
+                except (AttributeError, ValueError, TypeError):
+                    continue
+    return result
+
 ComputeFlavorName = Annotated[
     str,
     Field(
@@ -125,7 +156,11 @@ def register(mcp: Any) -> None:
         page: Optional[int] = None,
         page_size: Optional[int] = None,
     ) -> str:
-        """List VM instances in a VPC
+        """List VM instances in a VPC.
+
+        Newly created instances may take a few minutes to appear here; an empty
+        result immediately after create_instance does not prove the create
+        failed.
         """
 
         def _run() -> Any:
@@ -149,9 +184,10 @@ def register(mcp: Any) -> None:
 
         def _run() -> Any:
             client = get_session().get_client()
-            return client.highlvlvpc.retrieve_instance(
+            result = client.highlvlvpc.retrieve_instance(
                 krn=instance_krn, x_region=resolve_region(region)
             )
+            return _with_parsed_ip_addresses(result)
 
         return run_tool(_run)
 
@@ -253,6 +289,11 @@ def register(mcp: Any) -> None:
         in the selected region and use the user's exact choice; no flavor default
         or fallback is used. For subnet_id, use list_subnets.subnets[].subnet_id,
         never the parent network KRN.
+
+        Never blindly retry this tool after a timeout: the VM is usually still
+        created server-side. Newly created instances can also take a while to
+        appear in list_instances, so poll list_instances for at least 2-3 minutes
+        before concluding that the create failed.
         """
 
         def _run() -> Any:
@@ -341,7 +382,21 @@ def register(mcp: Any) -> None:
                 x_region=x_region,
                 flavor_type=instance_flavor_type,
             )
-            return client.highlvlvpc.create_instance(**kwargs)
+            try:
+                return client.highlvlvpc.create_instance(
+                    **kwargs,
+                    timeout=settings().create_timeout_seconds,
+                )
+            except APITimeoutError as exc:
+                raise TimeoutError(
+                    "create_instance timed out client-side, but the VM was most "
+                    "likely still created server-side and may be billing. Do NOT "
+                    "retry immediately: newly created instances can take a few "
+                    "minutes to appear in list_instances. Poll list_instances "
+                    f"for instance name {instance_name!r} for at least 2-3 "
+                    "minutes before creating another VM, and delete any "
+                    "duplicates you find."
+                ) from exc
 
         return run_tool(_run)
 

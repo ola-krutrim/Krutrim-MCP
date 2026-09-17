@@ -12,12 +12,11 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from krutrim_mcp_server.config import Settings
 from krutrim_mcp_server.server import create_server
-from tests.auth_tokens import TEST_ACCESS_TOKEN, TEST_REFRESH_TOKEN
 
 
 def _settings() -> Settings:
     return Settings(
-        api_key=None,
+        api_key="test-api-key-for-offline-tests",
         base_url="https://cloud.olakrutrim.com",
         default_region="In-Bangalore-1",
         read_only=False,
@@ -25,8 +24,6 @@ def _settings() -> Settings:
         client_max_retries=0,
         tool_profile="admin",
         enable_sensitive_tools=True,
-        access_token=TEST_ACCESS_TOKEN,
-        refresh_token=TEST_REFRESH_TOKEN,
     )
 
 

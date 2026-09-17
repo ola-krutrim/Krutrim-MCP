@@ -9,23 +9,17 @@ import os
 
 import pytest
 
-from krutrim_mcp_server.config import (
-    resolve_access_token,
-    resolve_refresh_token,
-)
+from krutrim_mcp_server.config import resolve_api_key
 from krutrim_mcp_server.server import create_server
 
 
 def _credentials_configured() -> bool:
-    return bool(resolve_access_token() and resolve_refresh_token())
+    return bool(resolve_api_key())
 
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("KRUTRIM_MCP_INTEGRATION") != "1" or not _credentials_configured(),
-    reason=(
-        "Set KRUTRIM_MCP_INTEGRATION=1 with KRUTRIM_ACCESS_TOKEN and "
-        "KRUTRIM_REFRESH_TOKEN"
-    ),
+    reason="Set KRUTRIM_MCP_INTEGRATION=1 with KRUTRIM_API_KEY",
 )
 
 

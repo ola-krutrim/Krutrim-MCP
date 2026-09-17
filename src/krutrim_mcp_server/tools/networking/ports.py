@@ -3,10 +3,12 @@
 from collections.abc import Mapping
 from typing import Annotated, Any, List, Optional
 
+from krutrim_client import APIError
 from pydantic import Field
 
 from krutrim_mcp_server.adapters.vpc import delete_floating_ip as delete_floating_ip_api
 from krutrim_mcp_server.client import get_session
+from krutrim_mcp_server.errors import format_error
 from krutrim_mcp_server.guards import ensure_confirmed, ensure_writable
 from krutrim_mcp_server.tools import (
     CONFIRM_FIELD,
@@ -119,6 +121,13 @@ def _validate_scoped_krn(
         raise ValueError(f"{label} must be a non-empty full Krutrim KRN")
     normalized = value.strip()
     parts = normalized.split(":")
+    if len(parts) == 7 and parts[4] == "***":
+        raise ValueError(
+            f"{label} contains a masked account segment (':***:'). Krutrim "
+            "listings redact the account id in returned KRNs, but the API "
+            "rejects masked KRNs as input. Replace '***' with your account "
+            "(customer) UUID before calling this tool."
+        )
     if (
         len(parts) != 7
         or any(not part for part in parts)
@@ -407,6 +416,91 @@ def register(mcp: Any) -> None:
                 vpc_id=vpc_id,
                 x_region=resolve_region(region),
             )
+
+        return run_tool(_run)
+
+    @mcp.tool()
+    def create_floating_ip(
+        vpc_id: VpcKrn,
+        network_id: str,
+        subnet_id: str,
+        name: str,
+        allow_public_ip: bool = False,
+        region: Region = REGION_FIELD,
+        confirm: bool = CONFIRM_FIELD,
+    ) -> str:
+        """Allocate a new public floating IP in a VPC.
+
+        Reserves the address on a new dedicated port and returns
+        floating_ip_krn, floating_ip_address, and the reservation port_krn.
+        Use attach_floating_ip to move it onto a VM's port (pass the returned
+        port_krn as attach_port and the VM port as detach_port). Get
+        network_id and subnet_id KRNs from describe_vpc; KRNs containing a
+        masked ':***:' account segment must have '***' replaced with your
+        account UUID first. Requires allow_public_ip=true because the address
+        is publicly routable and billable until deleted.
+        """
+
+        def _run() -> Any:
+            ensure_writable(settings(), "create_floating_ip")
+            ensure_confirmed(confirm, "create_floating_ip", name)
+            if not allow_public_ip:
+                raise ValueError(
+                    "create_floating_ip requires allow_public_ip=true after "
+                    "explicit user approval, because it reserves a publicly "
+                    "routable, billable address"
+                )
+            x_region = resolve_region(region)
+            resolved_vpc = _validate_vpc_krn(vpc_id, region=x_region)
+            resolved_network = _validate_scoped_krn(
+                network_id,
+                label="network_id",
+                service="vpc",
+                resource_type="network",
+                region=x_region,
+            )
+            resolved_subnet = _validate_scoped_krn(
+                subnet_id,
+                label="subnet_id",
+                service="vpc",
+                resource_type="subnet",
+                region=x_region,
+            )
+            _validate_vpc_resource_scope(
+                resolved_network, vpc_krn=resolved_vpc, label="network_id"
+            )
+            _validate_vpc_resource_scope(
+                resolved_subnet, vpc_krn=resolved_vpc, label="subnet_id"
+            )
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("name must be a non-empty string")
+            client = get_session().get_client()
+            try:
+                return client.highlvlvpc.create_port(
+                    floating_ip=True,
+                    name=name.strip(),
+                    network_id=resolved_network,
+                    subnet_id=resolved_subnet,
+                    vpc_id=resolved_vpc,
+                    x_region=x_region,
+                )
+            except APIError as exc:
+                # Even an HTTP 404 can follow allocation. Do not retry or clean up
+                # automatically, or reflect arbitrary SDK response bodies here.
+                status = getattr(exc, "status_code", None)
+                reason = (
+                    format_error(exc)
+                    if status in {401, 403}
+                    else f"Allocation request failed ({status or type(exc).__name__})."
+                )
+                raise RuntimeError(
+                    f"{reason} Allocation outcome is unknown: a billable floating IP "
+                    "and reservation port may already exist. Do NOT retry blindly. "
+                    f"Run list_floating_ips(vpc_id={resolved_vpc!r}, region={x_region!r}) "
+                    f"and search_ports(vpc_id={resolved_vpc!r}, region={x_region!r}) "
+                    "and inspect the results before any retry. "
+                    "No automatic retry or cleanup was performed."
+                ) from None
 
         return run_tool(_run)
 

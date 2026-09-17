@@ -9,9 +9,10 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Settings as FastMCPSettings
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolRequest, CallToolResult, ServerResult, ToolAnnotations
 from pydantic.fields import FieldInfo
 
+from krutrim_mcp_server.serialize import redact_tool_result
 from krutrim_mcp_server.tools import ToolSuccess
 
 _META_TOOLS = {"krutrim_ping", "list_regions"}
@@ -102,6 +103,7 @@ ADDITIVE_TOOLS = {
     "create_kks_node_group",
     "create_kpod",
     "create_launch_template",
+    "create_floating_ip",
     "create_machine_image",
     "create_port",
     "create_security_group",
@@ -153,6 +155,7 @@ DESTRUCTIVE_TOOLS = {
     "delete_security_group_rule",
     "delete_ssh_key",
     "delete_storage_access_key",
+    "delete_subnet",
     "delete_volume",
     "delete_volume_backup",
     "delete_volume_backup_policy",
@@ -222,6 +225,34 @@ class GuardedFastMCP(FastMCP):
         super().__init__(*args, **kwargs)
         if server_version is not None:
             self._mcp_server.version = server_version
+
+        # Wrap the *completed* low-level handler, not FastMCP.call_tool: argument
+        # conversion and output-schema validation can fail outside run_tool, and
+        # the protocol layer turns those failures into CallToolResult itself.
+        handler = self._mcp_server.request_handlers[CallToolRequest]
+
+        async def redacted_call_tool(request: CallToolRequest) -> ServerResult:
+            try:
+                result = await handler(request)
+                if isinstance(result.root, CallToolResult):
+                    tool = self._tool_manager.get_tool(request.params.name)
+                    schema = tool.output_schema if tool is not None else None
+                    redacted = redact_tool_result(
+                        result.root,
+                        output_fields=(
+                            frozenset(ToolSuccess.model_fields)
+                            & frozenset((schema or {}).get("properties", {}))
+                        ),
+                    )
+                    result = ServerResult(redacted)
+                return result
+            except Exception:
+                # Fail closed without formatting/logging the exception or calling
+                # the failed serializer/redactor again. Even fixed prose can equal
+                # an accepted short credential, so this last resort has no text.
+                return ServerResult(CallToolResult(content=[], isError=True))
+
+        self._mcp_server.request_handlers[CallToolRequest] = redacted_call_tool
 
     def tool(
         self,

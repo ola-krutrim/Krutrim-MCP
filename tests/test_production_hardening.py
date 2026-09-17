@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 from unittest.mock import MagicMock
 
@@ -16,11 +15,7 @@ from krutrim_mcp_server.config import Settings
 from krutrim_mcp_server.profiles import GuardedFastMCP
 from krutrim_mcp_server.serialize import to_jsonable
 from krutrim_mcp_server.server import create_server, main
-from tests.auth_tokens import (
-    TEST_ACCESS_TOKEN,
-    TEST_REFRESH_TOKEN,
-    make_iam_token_pair,
-)
+from tests.auth_tokens import TEST_ACCESS_TOKEN, TEST_REFRESH_TOKEN
 
 _VOLUME_KRN = (
     "krn:kbs:In-Bangalore-1:customer-test:account-test:volume:"
@@ -41,21 +36,10 @@ _SNAPSHOT_KRN = (
 _BACKUP_ID = "backup-00000000-0000-4000-8000-000000000004"
 
 
-def _jwt(payload: dict[str, object]) -> str:
-    header = {"alg": "HS256", "typ": "JWT"}
-    segments = []
-    for part in (header, payload):
-        encoded = base64.urlsafe_b64encode(json.dumps(part).encode()).decode()
-        segments.append(encoded.rstrip("="))
-    signature = base64.urlsafe_b64encode(b"test-signature").decode().rstrip("=")
-    return ".".join([*segments, signature])
+_TEST_API_KEY = "test-api-key-for-offline-tests"
 
 
-_TEST_IAM_JWT = TEST_ACCESS_TOKEN
-_TEST_REFRESH_TOKEN = TEST_REFRESH_TOKEN
-
-
-def _configure_bearer_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def _configure_api_key_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         "KRUTRIM_API_KEY",
         "KRUTRIM_CLIENT_API_KEY",
@@ -63,8 +47,9 @@ def _configure_bearer_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "KRUTRIMCLIENT_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("KRUTRIM_ACCESS_TOKEN", _TEST_IAM_JWT)
-    monkeypatch.setenv("KRUTRIM_REFRESH_TOKEN", _TEST_REFRESH_TOKEN)
+    monkeypatch.delenv("KRUTRIM_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("KRUTRIM_REFRESH_TOKEN", raising=False)
+    monkeypatch.setenv("KRUTRIM_API_KEY", _TEST_API_KEY)
 
 
 def _compute_flavor_entry(
@@ -113,15 +98,13 @@ def _configure_compute_flavor_catalog(
 
 def _settings(**overrides: object) -> Settings:
     values = dict(
-        api_key=None,
+        api_key=_TEST_API_KEY,
         base_url="https://cloud.olakrutrim.com",
         default_region="",
         read_only=False,
         log_level="ERROR",
         client_max_retries=0,
         tool_profile="core-readonly",
-        access_token=_TEST_IAM_JWT,
-        refresh_token=_TEST_REFRESH_TOKEN,
     )
     values.update(overrides)
     return Settings(**values)  # type: ignore[arg-type]
@@ -142,7 +125,7 @@ def test_unified_catalog_includes_all_supported_tools() -> None:
     assert "list_kpod_flavors" in normal_names
     assert "list_kpod_templates" in normal_names
     assert "validate_dns_zone_vpc" not in normal_names
-    assert len(normal_names) == 157
+    assert len(normal_names) == 159
 
     legacy_profile = create_server(_settings(tool_profile="core-readonly"))
     legacy_names = {tool.name for tool in legacy_profile._tool_manager.list_tools()}
@@ -478,7 +461,7 @@ def test_create_instance_blocks_malformed_flavor_catalog_envelopes(
 
 def test_snapshot_and_backup_schemas_are_explicit_non_idempotent_creates() -> None:
     server = create_server(_settings(tool_profile="storage"))
-    assert len(server._tool_manager.list_tools()) == 157
+    assert len(server._tool_manager.list_tools()) == 159
     snapshot = server._tool_manager.get_tool("create_volume_snapshot")
     backup = server._tool_manager.get_tool("create_volume_backup")
 
@@ -2500,18 +2483,46 @@ def test_generated_none_reads_return_actual_raw_json(
         cloud_client.close()
 
 
+def test_doctor_missing_key_omits_legacy_refresh_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for name in (
+        "KRUTRIM_API_KEY",
+        "KRUTRIM_CLIENT_API_KEY",
+        "krutrim_client_API_KEY",
+        "KRUTRIMCLIENT_API_KEY",
+        "KRUTRIM_ACCESS_TOKEN",
+        "KRUTRIM_REFRESH_TOKEN",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(SystemExit) as stopped:
+        main(["--doctor"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert stopped.value.code == 1
+    assert payload["ok"] is False
+    assert payload["configuration_ready"] is False
+    assert payload["credential_kind"] == "missing"
+    assert payload["authentication_verified"] is False
+    assert "refresh_token_configured" not in payload
+    assert "access_token_refresh_required" not in payload
+    assert "credential_context" not in payload
+
+
 def test_doctor_outputs_non_secret_configuration(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _configure_bearer_environment(monkeypatch)
+    _configure_api_key_environment(monkeypatch)
     main(["--doctor"])
     output = capsys.readouterr().out
     payload = json.loads(output)
     assert payload["ok"] is True
     assert payload["transport"] == "stdio"
     assert payload["catalog"] == "all-supported"
-    assert payload["tool_count"] == 157
+    assert payload["tool_count"] == 159
     assert "profile" not in payload
     assert payload["credentials_configured"] is True
     assert payload["configuration_ready"] is True
@@ -2521,21 +2532,23 @@ def test_doctor_outputs_non_secret_configuration(
         "create_asg",
         "create_launch_template",
     ]
-    assert _TEST_IAM_JWT not in output
-    assert _TEST_REFRESH_TOKEN not in output
+    assert payload["credential_kind"] == "api_key"
+    assert "refresh_token_configured" not in payload
+    assert "access_token_refresh_required" not in payload
+    assert _TEST_API_KEY not in output
 
 
 def test_legacy_profile_cli_is_ignored_with_warning(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _configure_bearer_environment(monkeypatch)
+    _configure_api_key_environment(monkeypatch)
 
     with pytest.warns(RuntimeWarning, match="--profile is deprecated and ignored"):
         main(["--doctor", "--profile", "core-readonly"])
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["tool_count"] == 157
+    assert payload["tool_count"] == 159
     assert payload["read_only"] is False
 
 
@@ -2548,100 +2561,119 @@ def test_legacy_profile_cli_is_ignored_with_warning(
         "KRUTRIMCLIENT_API_KEY",
     ),
 )
-def test_doctor_rejects_removed_api_key_environment_variables(
-    monkeypatch: pytest.MonkeyPatch,
-    name: str,
-) -> None:
-    monkeypatch.setenv(name, "legacy-api-key")
-
-    with pytest.raises(
-        SystemExit,
-        match="API-key authentication is disabled",
-    ):
-        main(["--doctor"])
-
-
-def test_doctor_accepts_access_and_refresh_token_pair_without_exposing_them(
+def test_doctor_accepts_api_key_environment_aliases_without_exposing_key(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    name: str,
 ) -> None:
-    access_token, refresh_token = make_iam_token_pair()
-    monkeypatch.delenv("KRUTRIM_API_KEY", raising=False)
-    monkeypatch.delenv("KRUTRIM_CLIENT_API_KEY", raising=False)
-    monkeypatch.delenv("krutrim_client_API_KEY", raising=False)
-    monkeypatch.delenv("KRUTRIMCLIENT_API_KEY", raising=False)
-    monkeypatch.setenv("KRUTRIM_ACCESS_TOKEN", access_token)
-    monkeypatch.setenv("KRUTRIM_REFRESH_TOKEN", refresh_token)
+    _configure_api_key_environment(monkeypatch)
+    monkeypatch.delenv("KRUTRIM_API_KEY")
+    monkeypatch.setenv(name, _TEST_API_KEY)
 
     main(["--doctor"])
 
     output = capsys.readouterr().out
     payload = json.loads(output)
     assert payload["ok"] is True
-    assert payload["credential_kind"] == "access_token"
-    assert payload["refresh_token_configured"] is True
-    assert payload["access_token_refresh_required"] is False
+    assert payload["credential_kind"] == "api_key"
     assert payload["authentication_verified"] is False
     assert payload["credential_ready"] is True
-    assert access_token not in output
-    assert refresh_token not in output
+    assert "refresh_token_configured" not in payload
+    assert "access_token_refresh_required" not in payload
+    assert _TEST_API_KEY not in output
 
 
-def test_doctor_does_not_consume_refresh_token(
+def test_doctor_does_not_initialize_sdk_or_make_network_requests(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     from krutrim_mcp_server import client as client_mod
 
-    monkeypatch.delenv("KRUTRIM_API_KEY", raising=False)
-    monkeypatch.delenv("KRUTRIM_CLIENT_API_KEY", raising=False)
-    monkeypatch.delenv("krutrim_client_API_KEY", raising=False)
-    monkeypatch.delenv("KRUTRIMCLIENT_API_KEY", raising=False)
-    access_token, refresh_token = make_iam_token_pair(access_exp=1)
-    monkeypatch.setenv("KRUTRIM_ACCESS_TOKEN", access_token)
-    monkeypatch.setenv("KRUTRIM_REFRESH_TOKEN", refresh_token)
+    _configure_api_key_environment(monkeypatch)
+    sdk_factory = MagicMock(side_effect=AssertionError("doctor must not initialize SDK"))
+    send = MagicMock(side_effect=AssertionError("doctor must not make network requests"))
     post = MagicMock(side_effect=AssertionError("doctor must not call IAM"))
-    monkeypatch.setattr(client_mod.httpx, "post", post)
+    monkeypatch.setattr(client_mod, "KrutrimClient", sdk_factory)
+    monkeypatch.setattr(httpx.Client, "send", send)
+    monkeypatch.setattr(httpx, "post", post)
 
     main(["--doctor"])
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["credential_ready"] is True
-    assert payload["access_token_refresh_required"] is True
     assert payload["authentication_verified"] is False
+    assert client_mod.get_session().health()["client_initialized"] is False
+    sdk_factory.assert_not_called()
+    send.assert_not_called()
     post.assert_not_called()
 
 
-def test_access_token_without_refresh_token_fails_fast(
+@pytest.mark.parametrize("with_api_key", [False, True])
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("KRUTRIM_ACCESS_TOKEN", TEST_ACCESS_TOKEN),
+        ("KRUTRIM_REFRESH_TOKEN", TEST_REFRESH_TOKEN),
+    ],
+    ids=["access-token", "refresh-token"],
+)
+def test_doctor_ignores_legacy_tokens_only_with_api_key(
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    with_api_key: bool,
+    name: str,
+    value: str,
 ) -> None:
-    monkeypatch.delenv("KRUTRIM_API_KEY", raising=False)
-    monkeypatch.delenv("KRUTRIM_CLIENT_API_KEY", raising=False)
-    monkeypatch.delenv("krutrim_client_API_KEY", raising=False)
-    monkeypatch.delenv("KRUTRIMCLIENT_API_KEY", raising=False)
-    monkeypatch.setenv("KRUTRIM_ACCESS_TOKEN", _TEST_IAM_JWT)
-    monkeypatch.delenv("KRUTRIM_REFRESH_TOKEN", raising=False)
+    _configure_api_key_environment(monkeypatch)
+    if not with_api_key:
+        monkeypatch.delenv("KRUTRIM_API_KEY")
+    monkeypatch.setenv(name, value)
+    send = MagicMock(side_effect=AssertionError("doctor must not make network requests"))
+    monkeypatch.setattr(httpx.Client, "send", send)
 
-    with pytest.raises(
-        SystemExit,
-        match="KRUTRIM_ACCESS_TOKEN is set, but KRUTRIM_REFRESH_TOKEN is missing",
-    ):
+    if with_api_key:
         main(["--doctor"])
+        message = ""
+    else:
+        with pytest.raises(SystemExit) as stopped:
+            main(["--doctor"])
+        message = str(stopped.value)
+        assert message == (
+            "Authentication configuration error: Set KRUTRIM_API_KEY "
+            "to your Krutrim Cloud API key."
+        )
+    output = capsys.readouterr()
+    if with_api_key:
+        payload = json.loads(output.out)
+        assert payload["credential_ready"] is True
+        assert payload["authentication_verified"] is False
+    rendered = message + output.out + output.err
+    assert value not in rendered
+    assert _TEST_API_KEY not in rendered
+    send.assert_not_called()
 
 
-def test_doctor_rejects_api_key_even_with_bearer_pair(
+def test_doctor_rejects_legacy_token_pair_without_exposing_either_value(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setenv("KRUTRIM_API_KEY", "api-key")
-    monkeypatch.setenv("KRUTRIM_ACCESS_TOKEN", _TEST_IAM_JWT)
-    monkeypatch.setenv("KRUTRIM_REFRESH_TOKEN", "refresh-token")
+    _configure_api_key_environment(monkeypatch)
+    monkeypatch.delenv("KRUTRIM_API_KEY")
+    monkeypatch.setenv("KRUTRIM_ACCESS_TOKEN", TEST_ACCESS_TOKEN)
+    monkeypatch.setenv("KRUTRIM_REFRESH_TOKEN", TEST_REFRESH_TOKEN)
 
-    with pytest.raises(
-        SystemExit,
-        match="API-key authentication is disabled",
-    ):
+    with pytest.raises(SystemExit) as stopped:
         main(["--doctor"])
+
+    message = str(stopped.value)
+    assert message == (
+        "Authentication configuration error: Set KRUTRIM_API_KEY "
+        "to your Krutrim Cloud API key."
+    )
+    output = capsys.readouterr()
+    rendered = message + output.out + output.err
+    assert TEST_ACCESS_TOKEN not in rendered
+    assert TEST_REFRESH_TOKEN not in rendered
 
 
 def test_doctor_does_not_accept_login_credentials(

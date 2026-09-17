@@ -98,6 +98,67 @@ def subnet_inventory(response: Any, *, vpc_id: str) -> dict[str, Any]:
     }
 
 
+def _vpc_tasks(response: Any) -> list[Any]:
+    """Find the task list in a VPC detail payload.
+
+    The SDK nests it one level deeper than the model suggests (``data.tasks``),
+    so walk a couple of levels rather than assuming a fixed shape.
+    """
+    node = response
+    for _ in range(4):
+        tasks = _field_value(node, "tasks")
+        if isinstance(tasks, (list, tuple)):
+            return list(tasks)
+        node = _field_value(node, "data")
+        if node is None:
+            break
+    return []
+
+
+def subnets_from_vpc_detail(response: Any) -> list[dict[str, str]]:
+    """Subnets of a VPC, read from its description.
+
+    THIS IS THE ONLY SOURCE THAT HAS THEM. ``search_network`` -- what this
+    module used to read -- returns network rows with no ``subnets`` field at
+    all, and identifies the network as ``krn_id`` rather than ``network_id``.
+    Both lookups therefore missed, every network yielded an empty subnet list,
+    and ``list_subnets`` reported none even for a VPC that had two. Because
+    ``verify_subnet_membership`` gates VM creation on that same empty list,
+    ``create_instance`` could not succeed for anybody.
+    """
+    subnets: list[dict[str, str]] = []
+    for task in _vpc_tasks(response):
+        if _optional_text(_field_value(task, "field")) != "subnet":
+            continue
+        entries = _field_value(task, "subnet_list")
+        if not isinstance(entries, (list, tuple)):
+            continue
+        for entry in entries:
+            subnet_id = _optional_text(_field_value(entry, "krn"))
+            if subnet_id is None:
+                continue
+            row: dict[str, str] = {"subnet_id": subnet_id}
+            for field in ("name", "cidr", "status"):
+                value = _optional_text(_field_value(entry, field))
+                if value is not None:
+                    row[field] = value
+            subnets.append(row)
+    return subnets
+
+
+def subnet_inventory_from_vpc(response: Any, *, vpc_id: str) -> dict[str, Any]:
+    """``list_subnets`` payload, sourced from the VPC description."""
+    return {
+        "vpc_id": vpc_id,
+        "subnets": subnets_from_vpc_detail(response),
+        "guidance": (
+            "Pass a value from subnets[].subnet_id to create_instance or "
+            "create_instance_template. parent_network_id is not a subnet and must not "
+            "be supplied as subnet_id."
+        ),
+    }
+
+
 def _krn_resource_kind(value: str) -> str | None:
     """Classify both known KRN layouts without inferring account identity."""
     parts = [part.strip() for part in value.split(":")]
@@ -150,23 +211,12 @@ def verify_subnet_membership(
     region: str,
 ) -> str:
     """Require the selected subnet KRN to be an exact member of the selected VPC."""
-    response = client.highlvlvpc.search_networks(
+    response = client.highlvlvpc.retrieve_vpc(
         vpc_id=vpc_id,
         x_region=region,
     )
-    rows = _network_rows(response, vpc_id=vpc_id)
-    network_matches = [row for row in rows if row["network_id"] == subnet_id]
-    if network_matches:
-        raise ValueError(
-            "subnet_id is a network KRN, not a subnet KRN. Use a value from "
-            "list_subnets.subnets[].subnet_id; no VM create request was sent"
-        )
-
     matches = [
-        row
-        for row in rows
-        for candidate_subnet_id in row["subnet_ids"]
-        if candidate_subnet_id == subnet_id
+        row for row in subnets_from_vpc_detail(response) if row["subnet_id"] == subnet_id
     ]
     if not matches:
         raise ValueError(
@@ -175,7 +225,7 @@ def verify_subnet_membership(
         )
     if len(matches) > 1:
         raise ValueError(
-            "subnet_id appears in multiple networks in the selected VPC; refusing "
-            "an ambiguous VM create request"
+            "subnet_id appears more than once in the selected VPC; refusing an "
+            "ambiguous VM create request"
         )
     return subnet_id

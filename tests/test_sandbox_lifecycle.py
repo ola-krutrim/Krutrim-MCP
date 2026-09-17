@@ -406,21 +406,24 @@ def test_duplicate_flavors_remain_ambiguous_regardless_of_availability(harness):
 
 
 @pytest.mark.parametrize("flavor_status", ["active", "inactive", None])
-def test_flavor_listing_omits_availability_and_status_metadata(harness, flavor_status):
+@pytest.mark.parametrize("availability", ["Available", "Unavailable"])
+def test_flavor_listing_preserves_availability_and_status_metadata(
+    harness, flavor_status, availability,
+):
     harness.replies[("GET", f"{PREFIX}/flavors")] = (
         200,
         {
             "status": 200,
-            "availability": "Unavailable",
+            "availability": availability,
             "data": [
                 {
                     "name": "sandbox-nano",
                     "groupBy": {
                         "flavorStatus": flavor_status,
-                        "availability": "Unavailable",
+                        "availability": availability,
                         "price": 1.56,
                     },
-                    "availability": "Unavailable",
+                    "availability": availability,
                     "resources": {
                         "cpu": 0.25,
                         "storage": 0.5,
@@ -435,14 +438,17 @@ def test_flavor_listing_omits_availability_and_status_metadata(harness, flavor_s
     entry = result.data["data"][0]
     assert result.data["status"] == 200
     assert entry["name"] == "sandbox-nano"
-    assert entry["group_by"] == {"price": 1.56}
-    assert entry["resources"] == {"cpu": 0.25, "storage": 0.5, "zones": [{"name": "zone-1"}]}
-    assert "availability" not in result.model_dump_json().lower()
-    assert "Unavailable" not in result.model_dump_json()
-    assert "flavor_status" not in result.model_dump_json()
-    assert (
-        "Do not display or infer availability" in harness.tool("list_sandbox_flavors").description
-    )
+    assert result.data["availability"] == availability
+    assert entry["availability"] == availability
+    assert entry["group_by"]["availability"] == availability
+    assert entry["group_by"].get("flavor_status") == flavor_status
+    assert entry["group_by"]["price"] == 1.56
+    assert entry["resources"] == {
+        "cpu": 0.25, "storage": 0.5, "isAvailable": False,
+        "zones": [{"name": "zone-1", "available": False}],
+    }
+    assert "snapshot" in result.data["selection_guidance"].lower()
+    assert "not a guarantee" in harness.tool("list_sandbox_flavors").description.lower()
     assert len(harness.requests) == 1
 
 
@@ -652,7 +658,7 @@ def test_create_requires_exact_active_flavor_status(harness, group, nested):
         "flavor_status",
     ],
 )
-def test_flavor_listing_omits_capacity_field_aliases(harness, field):
+def test_flavor_listing_preserves_capacity_field_aliases(harness, field):
     harness.replies[("GET", f"{PREFIX}/flavors")] = (
         200,
         {
@@ -667,14 +673,13 @@ def test_flavor_listing_omits_capacity_field_aliases(harness, field):
         },
     )
     result = harness.call("list_sandbox_flavors", region=REGION)
-    assert result.data["data"][0]["resources"] == {"cpu": 1}
-    assert "Unavailable" not in result.model_dump_json()
+    assert result.data["data"][0]["resources"] == {"cpu": 1, field: "Unavailable"}
 
 
-def test_hidden_listing_status_is_rechecked_before_create(harness):
+def test_listed_active_status_is_rechecked_before_create(harness):
     prepare_create(harness)
     listed = harness.call("list_sandbox_flavors", region=REGION)
-    assert "flavor_status" not in listed.model_dump_json()
+    assert listed.data["data"][0]["group_by"]["flavor_status"] == "active"
     harness.replies[("GET", f"{PREFIX}/flavors")] = (
         200,
         {"status": 200, "data": [{"name": "cpu-small", "groupBy": {"flavorStatus": "inactive"}}]},
@@ -749,9 +754,8 @@ def test_captured_catalog_flavors_pass_active_preflight(harness, entry):
     assert public["group_by"]["cost"] == entry["groupBy"]["cost"]
     assert public["group_by"]["vcpus"] == entry["groupBy"]["vcpus"]
     assert public["group_by"]["storage"] == entry["groupBy"]["storage"]
-    assert "flavorstatus" not in public["group_by"]
-    assert "flavor_status" not in public["group_by"]
-    assert "availability" not in public["group_by"]
+    assert public["group_by"]["flavorstatus"] == entry["groupBy"]["flavorstatus"]
+    assert public["group_by"].get("availability") == entry["groupBy"].get("availability")
     args = {key: value for key, value in CREATE.items() if key != "ttl_seconds"}
     result = harness.call("create_sandbox", **(args | {"flavor_name": name}))
     assert result.data["status"] == 202
@@ -1122,6 +1126,10 @@ def test_published_schemas_expose_required_inputs_and_bounds(harness):
     assert ttl["default"] is None
     assert "Optional" in ttl["description"]
     assert "omitted" in ttl["description"]
+    for text in ("one hour", "1 minute to 7 days", "3600"):
+        assert text in ttl["description"]
+        assert text in harness.tool("create_sandbox").description
+    assert "1 minute to 7 days" in harness.tool("set_sandbox_ttl").description
     bounds = next(s for s in ttl["anyOf"] if s.get("type") == "integer")
     assert bounds["minimum"] == 60
     assert bounds["maximum"] == 604800

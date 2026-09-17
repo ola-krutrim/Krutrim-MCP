@@ -22,12 +22,11 @@ from krutrim_mcp_server.credential_delivery import (
     parse_recipient_public_key,
 )
 from krutrim_mcp_server.server import create_server
-from tests.auth_tokens import TEST_ACCESS_TOKEN, TEST_REFRESH_TOKEN
 
 
 def _settings(**overrides: object) -> Settings:
     values = dict(
-        api_key=None,
+        api_key="test-api-key-for-offline-tests",
         base_url="https://cloud.olakrutrim.com",
         default_region="",
         read_only=False,
@@ -35,8 +34,6 @@ def _settings(**overrides: object) -> Settings:
         client_max_retries=0,
         tool_profile="admin",
         enable_sensitive_tools=True,
-        access_token=TEST_ACCESS_TOKEN,
-        refresh_token=TEST_REFRESH_TOKEN,
     )
     values.update(overrides)
     return Settings(**values)  # type: ignore[arg-type]

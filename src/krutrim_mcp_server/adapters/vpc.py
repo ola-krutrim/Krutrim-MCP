@@ -11,6 +11,7 @@ from krutrim_mcp_server.config import KNOWN_REGIONS
 
 _CREATE_VPC_PATH = "/v1/highlvlvpc/create_vpc_async"
 _DELETE_FLOATING_IP_PATH = "/v1/highlvlvpc/delete_floating_ip"
+_DELETE_SUBNET_PATH = "/v1/highlvlvpc/delete_subnet"
 _CREATE_VPC_FIELD_TYPES = {
     "network": {"admin_state_up": bool, "name": str},
     "subnet": {
@@ -108,6 +109,41 @@ def delete_floating_ip(
         options={
             "headers": {"x-region": x_region},
             "params": {"floating_ip_krn": floating_ip_krn.strip()},
+            "max_retries": 0,
+        },
+    )
+    return response_payload(response)
+
+
+def delete_subnet(
+    client: KrutrimClient,
+    *,
+    subnet_id: str,
+    vpc_id: str,
+    x_region: str,
+) -> dict[str, Any]:
+    """Delete a subnet through the direct API.
+
+    Verified contract: DELETE /v1/highlvlvpc/delete_subnet with query
+    parameters vpc_id and subnet_id (both full KRNs); returns
+    {"success": "Successfully deleted the Subnet"}.
+    """
+    if not isinstance(subnet_id, str) or not subnet_id.strip():
+        raise ValueError("subnet_id must be a non-empty string")
+    if not isinstance(vpc_id, str) or not vpc_id.strip():
+        raise ValueError("vpc_id must be a non-empty string")
+    if x_region not in KNOWN_REGIONS:
+        raise ValueError(f"Unsupported subnet delete region: {x_region}")
+
+    response = client.delete(
+        _DELETE_SUBNET_PATH,
+        cast_to=httpx.Response,
+        options={
+            "headers": {"x-region": x_region},
+            "params": {
+                "subnet_id": subnet_id.strip(),
+                "vpc_id": vpc_id.strip(),
+            },
             "max_retries": 0,
         },
     )

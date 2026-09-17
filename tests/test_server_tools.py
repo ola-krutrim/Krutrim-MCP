@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock
 
 import pytest
@@ -11,8 +9,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from krutrim_mcp_server import __version__
-from krutrim_mcp_server import config as config_mod
-from krutrim_mcp_server.client import AuthError, KrutrimCloudSession
+from krutrim_mcp_server.client import KrutrimCloudSession
 from krutrim_mcp_server.config import Settings
 from krutrim_mcp_server.profiles import (
     ADDITIVE_TOOLS,
@@ -22,19 +19,11 @@ from krutrim_mcp_server.profiles import (
 )
 from krutrim_mcp_server.server import create_server
 from krutrim_mcp_server.tools.networking.rules import SecurityGroupRuleSpec
-from tests.auth_tokens import (
-    TEST_ACCESS_TOKEN,
-    TEST_REFRESH_TOKEN,
-    make_iam_token_pair,
-)
-
-_TEST_IAM_JWT = TEST_ACCESS_TOKEN
-_TEST_REFRESH_TOKEN = TEST_REFRESH_TOKEN
 
 
 def _settings(**overrides: object) -> Settings:
-    base = dict(
-        api_key=None,
+    base: dict[str, object] = dict(
+        api_key="test-api-key-for-offline-tests",
         base_url="https://cloud.olakrutrim.com",
         default_region="In-Bangalore-1",
         read_only=False,
@@ -42,8 +31,6 @@ def _settings(**overrides: object) -> Settings:
         client_max_retries=0,
         tool_profile="admin",
         enable_sensitive_tools=True,
-        access_token=_TEST_IAM_JWT,
-        refresh_token=_TEST_REFRESH_TOKEN,
     )
     base.update(overrides)
     return Settings(**base)  # type: ignore[arg-type]
@@ -58,7 +45,7 @@ def test_tools_registered(server) -> None:
     tools = server._tool_manager.list_tools()
     names = {t.name for t in tools}
     assert names == (READ_ONLY_TOOLS | ADDITIVE_TOOLS | DESTRUCTIVE_TOOLS) - UNAVAILABLE_TOOLS
-    assert len(names) == 157
+    assert len(names) == 159
 
 
 def test_default_catalog_exposes_all_supported_tools(
@@ -66,7 +53,7 @@ def test_default_catalog_exposes_all_supported_tools(
 ) -> None:
     srv = create_server(_settings(tool_profile="core-readonly", enable_sensitive_tools=False))
     tools = srv._tool_manager.list_tools()
-    assert len(tools) == 157
+    assert len(tools) == 159
     assert srv._tool_manager.get_tool("list_compute_flavors") is not None
     assert srv._tool_manager.get_tool("list_gpu_compute_flavors") is not None
     assert srv._tool_manager.get_tool("list_kpod_flavors") is not None
@@ -959,348 +946,6 @@ def test_every_tool_has_structured_schema_and_annotations(server) -> None:
         assert tool.annotations is not None
         assert tool.annotations.readOnlyHint == (tool.name in READ_ONLY_TOOLS)
         assert tool.annotations.destructiveHint == (tool.name in DESTRUCTIVE_TOOLS)
-
-
-def test_session_health_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("KRUTRIM_API_KEY", raising=False)
-    monkeypatch.delenv("KRUTRIM_CLIENT_API_KEY", raising=False)
-    monkeypatch.delenv("krutrim_client_API_KEY", raising=False)
-    monkeypatch.delenv("KRUTRIMCLIENT_API_KEY", raising=False)
-    s = _settings(access_token=None, refresh_token=None)
-    session = KrutrimCloudSession(s)
-    health = session.health()
-    assert health["ok"] is False
-    assert health["auth_mode"] == "missing"
-    assert "token_age_seconds" not in health
-
-
-def test_session_requires_manually_configured_token() -> None:
-    session = KrutrimCloudSession(_settings(access_token=None, refresh_token=None))
-
-    with pytest.raises(AuthError, match="KRUTRIM_ACCESS_TOKEN"):
-        session.get_client()
-
-
-def test_dormant_api_key_path_reaches_sdk_only_with_release_policy_gate(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from krutrim_mcp_server import client as client_mod
-
-    api_key = "future-reviewed-api-key"
-    cloud_client = MagicMock()
-    cloud_client_factory = MagicMock(return_value=cloud_client)
-    refresh = MagicMock(side_effect=AssertionError("API-key path must not refresh"))
-    monkeypatch.setattr(config_mod, "_LOCAL_API_KEY_AUTHENTICATION_ENABLED", True)
-    monkeypatch.setattr(client_mod, "KrutrimClient", cloud_client_factory)
-    monkeypatch.setattr(client_mod, "_patch_client_compatibility", lambda client: None)
-    monkeypatch.setattr(client_mod.httpx, "post", refresh)
-    session = KrutrimCloudSession(
-        _settings(api_key=api_key, access_token=None, refresh_token=None)
-    )
-
-    assert session.get_client() is cloud_client
-    assert session.health()["auth_mode"] == "api_key"
-    assert session.health()["credential_context"]["credential_kind"] == "api_key"
-    assert cloud_client_factory.call_args.kwargs["api_key"] == api_key
-    assert api_key not in json.dumps(session.health())
-    refresh.assert_not_called()
-
-
-def test_session_health_exposes_non_secret_credential_context() -> None:
-    token, refresh_token = make_iam_token_pair(
-        access_exp=2_000_000_000,
-        access_overrides={
-            "iss": "account-123",
-            "customer_id": "customer-456",
-            "uuid": "principal-789",
-        },
-        refresh_overrides={
-            "iss": "account-123",
-            "uuid": "principal-789",
-        },
-    )
-    session = KrutrimCloudSession(
-        _settings(access_token=token, refresh_token=refresh_token)
-    )
-
-    health = session.health()
-    context = health["credential_context"]
-
-    assert health["auth_mode"] == "access_token"
-    assert context["available"] is True
-    assert context["token_type"] == "jwt"
-    assert context["account_id"] == "account-123"
-    assert context["customer_id"] == "customer-456"
-    assert context["principal_id"] == "principal-789"
-    assert context["scope"] == "cloud-console"
-    assert context["is_root"] is False
-    assert context["credential_kind"] == "access_token"
-    assert context["claims_verified"] is False
-    assert context["expires_at_epoch"] == 2_000_000_000
-    assert len(context["token_fingerprint"]) == 12
-    assert token not in json.dumps(context)
-
-
-def test_valid_access_token_does_not_refresh(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from krutrim_mcp_server import client as client_mod
-
-    access_token, refresh_token = make_iam_token_pair(access_exp=2_000_000_000)
-    cloud_client = MagicMock()
-    cloud_client_factory = MagicMock(return_value=cloud_client)
-    refresh = MagicMock(side_effect=AssertionError("refresh must not run"))
-    monkeypatch.setattr(client_mod, "KrutrimClient", cloud_client_factory)
-    monkeypatch.setattr(client_mod, "_patch_client_compatibility", lambda client: None)
-    monkeypatch.setattr(client_mod.httpx, "post", refresh)
-    session = KrutrimCloudSession(
-        _settings(api_key=None, access_token=access_token, refresh_token=refresh_token)
-    )
-
-    assert session.get_client() is cloud_client
-    assert cloud_client_factory.call_args.kwargs["api_key"] == access_token
-    refresh.assert_not_called()
-    assert session.health()["auth_mode"] == "access_token"
-
-
-def test_health_never_refreshes_an_expired_access_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from krutrim_mcp_server import client as client_mod
-
-    post = MagicMock(side_effect=AssertionError("health must not call IAM"))
-    monkeypatch.setattr(client_mod.httpx, "post", post)
-    access_token, refresh_token = make_iam_token_pair(access_exp=1)
-    session = KrutrimCloudSession(
-        _settings(api_key=None, access_token=access_token, refresh_token=refresh_token)
-    )
-
-    health = session.health()
-
-    assert health["ok"] is True
-    assert health["access_token_refresh_required"] is True
-    assert health["authentication_verified"] is False
-    post.assert_not_called()
-
-
-def test_expired_access_token_refreshes_once_and_updates_cached_sdk_client(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from krutrim_mcp_server import client as client_mod
-
-    now = 100.0
-    old_access_token, initial_refresh_token = make_iam_token_pair(access_exp=1)
-    new_access_token, rotated_refresh_token = make_iam_token_pair(
-        access_exp=1_000,
-        refresh_overrides={
-            "rid": "rotated-refresh-token-id",
-            "jti": "rotated-refresh-jti",
-        },
-    )
-    response = MagicMock(status_code=200)
-    response.json.return_value = {
-        "access_token": new_access_token,
-        "refresh_token": rotated_refresh_token,
-        "token_type": "Bearer",
-    }
-    post = MagicMock(return_value=response)
-    cloud_client = MagicMock()
-    cloud_client_factory = MagicMock(return_value=cloud_client)
-    monkeypatch.setattr(client_mod.time, "time", lambda: now)
-    monkeypatch.setattr(client_mod.httpx, "post", post)
-    monkeypatch.setattr(client_mod, "KrutrimClient", cloud_client_factory)
-    monkeypatch.setattr(client_mod, "_patch_client_compatibility", lambda client: None)
-    session = KrutrimCloudSession(
-        _settings(
-            api_key=None,
-            access_token=old_access_token,
-            refresh_token=initial_refresh_token,
-        )
-    )
-
-    assert session.get_client() is cloud_client
-    assert session.get_client() is cloud_client
-    post.assert_called_once_with(
-        "https://cloud.olakrutrim.com/iam/v1/token/refresh",
-        files={
-            "refresh_token": (None, initial_refresh_token),
-            "grant_type": (None, "refresh_token"),
-        },
-        timeout=30.0,
-        follow_redirects=False,
-    )
-    assert cloud_client_factory.call_args.kwargs["api_key"] == new_access_token
-    assert session._refresh_token == rotated_refresh_token
-
-
-def test_refresh_updates_an_existing_sdk_client(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from krutrim_mcp_server import client as client_mod
-
-    now = 100.0
-    initial_access_token, refresh_token = make_iam_token_pair(access_exp=1_000)
-    refreshed_access_token, _ = make_iam_token_pair(access_exp=2_000)
-    response = MagicMock(status_code=200)
-    response.json.return_value = {"access_token": refreshed_access_token}
-    cloud_client = MagicMock()
-    cloud_client.api_key = initial_access_token
-    monkeypatch.setattr(client_mod.time, "time", lambda: now)
-    monkeypatch.setattr(client_mod.httpx, "post", MagicMock(return_value=response))
-    monkeypatch.setattr(client_mod, "KrutrimClient", MagicMock(return_value=cloud_client))
-    monkeypatch.setattr(client_mod, "_patch_client_compatibility", lambda client: None)
-    session = KrutrimCloudSession(
-        _settings(
-            api_key=None,
-            access_token=initial_access_token,
-            refresh_token=refresh_token,
-        )
-    )
-
-    assert session.get_client() is cloud_client
-    now = 950.0
-    assert session.get_client() is cloud_client
-
-    assert cloud_client.api_key == refreshed_access_token
-
-
-def test_refresh_failure_does_not_expose_refresh_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from krutrim_mcp_server import client as client_mod
-
-    access_token, refresh_token = make_iam_token_pair(access_exp=1)
-    response = MagicMock(status_code=401)
-    monkeypatch.setattr(client_mod.httpx, "post", MagicMock(return_value=response))
-    session = KrutrimCloudSession(
-        _settings(
-            api_key=None,
-            access_token=access_token,
-            refresh_token=refresh_token,
-        )
-    )
-
-    with pytest.raises(AuthError) as stopped:
-        session.get_client()
-
-    assert refresh_token not in str(stopped.value)
-
-
-@pytest.mark.parametrize(
-    ("payload", "message"),
-    [
-        ([], "invalid token refresh response"),
-        ({}, "omitted access_token"),
-        ({"access_token": "not-a-jwt"}, "invalid refreshed token pair"),
-        (
-            {
-                "access_token": make_iam_token_pair(access_exp=1_000)[0],
-                "token_type": "MAC",
-            },
-            "unsupported refreshed token type",
-        ),
-        (
-            {
-                "access_token": make_iam_token_pair(access_exp=1_000)[0],
-                "refresh_token": "",
-            },
-            "invalid rotated refresh token",
-        ),
-    ],
-)
-def test_rejects_malformed_refresh_responses(
-    payload: object,
-    message: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from krutrim_mcp_server import client as client_mod
-
-    response = MagicMock(status_code=200)
-    response.json.return_value = payload
-    monkeypatch.setattr(client_mod.time, "time", lambda: 100.0)
-    monkeypatch.setattr(client_mod.httpx, "post", MagicMock(return_value=response))
-    access_token, refresh_token = make_iam_token_pair(access_exp=1)
-    session = KrutrimCloudSession(
-        _settings(api_key=None, access_token=access_token, refresh_token=refresh_token)
-    )
-
-    with pytest.raises(AuthError, match=message):
-        session.get_client()
-
-
-def test_rotated_refresh_token_is_used_for_the_next_refresh(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from krutrim_mcp_server import client as client_mod
-
-    now = 100.0
-    old_access_token, initial_refresh_token = make_iam_token_pair(access_exp=1)
-    first_access_token, rotated_refresh_token = make_iam_token_pair(
-        access_exp=200,
-        refresh_overrides={
-            "rid": "rotated-refresh-token-id",
-            "jti": "rotated-refresh-jti",
-        },
-    )
-    second_access_token, _ = make_iam_token_pair(access_exp=1_000)
-    first = MagicMock(status_code=200)
-    first.json.return_value = {
-        "access_token": first_access_token,
-        "refresh_token": rotated_refresh_token,
-    }
-    second = MagicMock(status_code=200)
-    second.json.return_value = {"access_token": second_access_token}
-    post = MagicMock(side_effect=[first, second])
-    monkeypatch.setattr(client_mod.time, "time", lambda: now)
-    monkeypatch.setattr(client_mod.httpx, "post", post)
-    monkeypatch.setattr(client_mod, "KrutrimClient", MagicMock(return_value=MagicMock()))
-    monkeypatch.setattr(client_mod, "_patch_client_compatibility", lambda client: None)
-    session = KrutrimCloudSession(
-        _settings(
-            api_key=None,
-            access_token=old_access_token,
-            refresh_token=initial_refresh_token,
-        )
-    )
-
-    session.get_client()
-    now = 150.0
-    session.get_client()
-
-    assert post.call_count == 2
-    assert post.call_args_list[1].kwargs["files"]["refresh_token"] == (
-        None,
-        rotated_refresh_token,
-    )
-
-
-def test_concurrent_access_token_users_share_one_refresh(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from krutrim_mcp_server import client as client_mod
-
-    old_access_token, refresh_token = make_iam_token_pair(access_exp=1)
-    new_access_token, _ = make_iam_token_pair(access_exp=2_000_000_000)
-    response = MagicMock(status_code=200)
-    response.json.return_value = {"access_token": new_access_token}
-    post = MagicMock(return_value=response)
-    cloud_client = MagicMock()
-    monkeypatch.setattr(client_mod.httpx, "post", post)
-    monkeypatch.setattr(client_mod, "KrutrimClient", MagicMock(return_value=cloud_client))
-    monkeypatch.setattr(client_mod, "_patch_client_compatibility", lambda client: None)
-    session = KrutrimCloudSession(
-        _settings(
-            api_key=None,
-            access_token=old_access_token,
-            refresh_token=refresh_token,
-        )
-    )
-
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        clients = list(pool.map(lambda _: session.get_client(), range(8)))
-
-    assert clients == [cloud_client] * 8
-    post.assert_called_once()
 
 
 def test_client_disables_sdk_retries_by_default(monkeypatch: pytest.MonkeyPatch) -> None:

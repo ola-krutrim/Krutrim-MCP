@@ -66,7 +66,11 @@ def create_server(settings: Settings | None = None) -> FastMCP:
             "exposure; never guess a template or substitute compute or KKS flavor "
             "catalogs. "
             "Before create_sandbox, call list_sandbox_flavors in the selected region "
-            "and list_sandbox_templates; require explicit flavor, template, and TTL choices. "
+            "and list_sandbox_templates; require explicit flavor and template choices. "
+            "Explain Sandbox expiry before confirmation: default one hour (3600 seconds), "
+            "supported duration 1 minute to 7 days (60–604800 seconds). ttl_seconds is "
+            "optional; omission uses the backend default. Show reported availability as a "
+            "snapshot, not a capacity guarantee. "
             "Sandbox creation is asynchronous: use describe_sandbox to check readiness. "
             "Sandbox commands and all proxy requests (including GET) are mutations. "
             "Opening a Sandbox port additionally requires allow_public_exposure=true. "
@@ -156,10 +160,6 @@ def main(argv: Sequence[str] | None = None) -> None:
                     "credentials_configured": cfg.credential_kind != "missing",
                     "configuration_ready": credential_ready,
                     "credential_kind": cfg.credential_kind,
-                    "refresh_token_configured": bool(cfg.refresh_token),
-                    "access_token_refresh_required": session_health[
-                        "access_token_refresh_required"
-                    ],
                     "authentication_verified": False,
                     "credential_ready": credential_ready,
                     "compatibility_disabled_tools": sorted(UNAVAILABLE_TOOLS),

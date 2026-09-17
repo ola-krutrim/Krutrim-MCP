@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import os
 import warnings
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
-
-from krutrim_mcp_server.token_validation import validate_local_token_pair
 
 DEFAULT_BASE_URL = "https://cloud.olakrutrim.com"
 KNOWN_REGIONS = ("In-Bangalore-1", "In-Hyderabad-1")
@@ -18,23 +17,6 @@ _API_KEY_ENV_NAMES = (
     "KRUTRIM_CLIENT_API_KEY",
     "krutrim_client_API_KEY",
     "KRUTRIMCLIENT_API_KEY",
-)
-# API-key authentication is disabled for this stdio release.
-_LOCAL_API_KEY_AUTHENTICATION_ENABLED = False
-API_KEY_AUTHENTICATION_REMOVED = (
-    "Authentication configuration error: API-key authentication is disabled in "
-    "this release. Remove KRUTRIM_API_KEY and its legacy aliases, then configure "
-    "both KRUTRIM_ACCESS_TOKEN and KRUTRIM_REFRESH_TOKEN."
-)
-ACCESS_TOKEN_WITHOUT_REFRESH_TOKEN = (
-    "Authentication configuration error: KRUTRIM_ACCESS_TOKEN is set, but "
-    "KRUTRIM_REFRESH_TOKEN is missing. Add KRUTRIM_REFRESH_TOKEN to the same MCP "
-    "server environment. Both values are required for local stdio authentication."
-)
-REFRESH_TOKEN_WITHOUT_ACCESS_TOKEN = (
-    "Authentication configuration error: KRUTRIM_REFRESH_TOKEN is set, but "
-    "KRUTRIM_ACCESS_TOKEN is missing. Add KRUTRIM_ACCESS_TOKEN to the same MCP "
-    "server environment, or remove the unused KRUTRIM_REFRESH_TOKEN."
 )
 
 
@@ -73,8 +55,8 @@ def _env_float(name: str, default: float) -> float:
         value = float(raw.strip())
     except ValueError as exc:
         raise ValueError(f"{name} must be a number") from exc
-    if value <= 0:
-        raise ValueError(f"{name} must be greater than 0")
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be finite and greater than 0")
     return value
 
 
@@ -88,44 +70,37 @@ def _validate_http_url(value: str, name: str, *, allow_loopback_http: bool = Fal
         raise ValueError(f"{name} must use HTTPS outside loopback development")
 
 
+def _validate_api_key(value: str) -> None:
+    """Reject unsafe header values and token-shaped credentials, without decoding."""
+    if (
+        not isinstance(value, str)
+        or not value
+        or any(not 33 <= ord(char) <= 126 for char in value)
+        or value.lower() == "bearer"
+        or value.lower().startswith("bearer:")
+        or value.count(".") >= 2
+    ):
+        raise ValueError(
+            "Authentication configuration error: KRUTRIM_API_KEY must be a raw "
+            "opaque API key, without whitespace, control/non-ASCII characters, "
+            "a Bearer prefix, or JWT dot-separated tokens."
+        )
+
+
 def resolve_api_key() -> str | None:
     """Resolve an API key from SDK-compatible environment variable names."""
     configured: list[tuple[str, str]] = []
     for name in _API_KEY_ENV_NAMES:
         value = os.environ.get(name)
-        if value and value.strip():
-            configured.append((name, value.strip()))
+        if value:
+            _validate_api_key(value)
+            configured.append((name, value))
     if not configured:
         return None
     if len({value for _, value in configured}) > 1:
         names = ", ".join(name for name, _ in configured)
         raise ValueError(f"Conflicting API key values are configured in: {names}")
     return configured[0][1]
-
-
-def _resolve_secret(name: str) -> str | None:
-    value = os.environ.get(name)
-    if value and value.strip():
-        return value.strip()
-    return None
-
-
-def _configured_nonempty_env_names(names: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(
-        name
-        for name in names
-        if (value := os.environ.get(name)) is not None and bool(value.strip())
-    )
-
-
-def resolve_access_token() -> str | None:
-    """Resolve the short-lived IAM bearer access token."""
-    return _resolve_secret("KRUTRIM_ACCESS_TOKEN")
-
-
-def resolve_refresh_token() -> str | None:
-    """Resolve the refresh token paired with ``KRUTRIM_ACCESS_TOKEN``."""
-    return _resolve_secret("KRUTRIM_REFRESH_TOKEN")
 
 
 @dataclass(frozen=True)
@@ -138,15 +113,20 @@ class Settings:
     client_max_retries: int
     tool_profile: str | None = None
     client_timeout_seconds: float = 30.0
+    create_timeout_seconds: float = 600.0
     enable_sensitive_tools: bool = False
-    access_token: str | None = field(default=None, repr=False)
-    refresh_token: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls) -> Settings:
-        configured_api_keys = _configured_nonempty_env_names(_API_KEY_ENV_NAMES)
-        if configured_api_keys and not _LOCAL_API_KEY_AUTHENTICATION_ENABLED:
-            raise ValueError(API_KEY_AUTHENTICATION_REMOVED)
+        api_key = resolve_api_key()
+        # Inherited tokens must not block an explicitly configured API key.
+        # They are never used as credentials or as a fallback.
+        legacy_names = ("KRUTRIM_ACCESS_TOKEN", "KRUTRIM_REFRESH_TOKEN")
+        if api_key is None and any(os.environ.get(name) for name in legacy_names):
+            raise ValueError(
+                "Authentication configuration error: Set KRUTRIM_API_KEY "
+                "to your Krutrim Cloud API key."
+            )
         if "KRUTRIM_MCP_PROFILE" in os.environ:
             warnings.warn(
                 "KRUTRIM_MCP_PROFILE is deprecated and ignored; all supported "
@@ -156,44 +136,27 @@ class Settings:
                 stacklevel=2,
             )
         settings = cls(
-            api_key=resolve_api_key(),
+            api_key=api_key,
             base_url=os.environ.get("KRUTRIM_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
             default_region=os.environ.get("KRUTRIM_DEFAULT_REGION", "").strip(),
             read_only=_env_bool("KRUTRIM_MCP_READ_ONLY", False),
             log_level=os.environ.get("KRUTRIM_MCP_LOG_LEVEL", "INFO").upper(),
             client_max_retries=_env_int("KRUTRIM_CLIENT_MAX_RETRIES", 0),
             client_timeout_seconds=_env_float("KRUTRIM_CLIENT_TIMEOUT_SECONDS", 30.0),
-            access_token=resolve_access_token(),
-            refresh_token=resolve_refresh_token(),
+            create_timeout_seconds=_env_float("KRUTRIM_CREATE_TIMEOUT_SECONDS", 600.0),
         )
         settings.validate()
         return settings
 
     def validate(self) -> None:
-        has_api_key = bool(self.api_key and self.api_key.strip())
-        has_access_token = bool(self.access_token and self.access_token.strip())
-        has_refresh_token = bool(self.refresh_token and self.refresh_token.strip())
-
-        if has_api_key and not _LOCAL_API_KEY_AUTHENTICATION_ENABLED:
-            raise ValueError(API_KEY_AUTHENTICATION_REMOVED)
-        if has_api_key and (has_access_token or has_refresh_token):
-            raise ValueError(
-                "Configure either KRUTRIM_API_KEY or the KRUTRIM_ACCESS_TOKEN and "
-                "KRUTRIM_REFRESH_TOKEN pair, not both"
-            )
-        if has_access_token and not has_refresh_token:
-            raise ValueError(ACCESS_TOKEN_WITHOUT_REFRESH_TOKEN)
-        if has_refresh_token and not has_access_token:
-            raise ValueError(REFRESH_TOKEN_WITHOUT_ACCESS_TOKEN)
-        if has_access_token and has_refresh_token:
-            assert self.access_token is not None
-            assert self.refresh_token is not None
-            validate_local_token_pair(
-                self.access_token,
-                self.refresh_token,
-                allow_expired_access=True,
-            )
-
+        if self.api_key is not None:
+            _validate_api_key(self.api_key)
+        for name, value in (
+            ("KRUTRIM_CLIENT_TIMEOUT_SECONDS", self.client_timeout_seconds),
+            ("KRUTRIM_CREATE_TIMEOUT_SECONDS", self.create_timeout_seconds),
+        ):
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and greater than 0")
         if self.log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("KRUTRIM_MCP_LOG_LEVEL is invalid")
         if self.client_max_retries != 0:
@@ -207,8 +170,6 @@ class Settings:
     @property
     def credential_kind(self) -> str:
         """Return the configured credential path without inspecting token contents."""
-        if self.api_key and self.api_key.strip():
+        if self.api_key:
             return "api_key"
-        if self.access_token and self.access_token.strip():
-            return "access_token"
         return "missing"

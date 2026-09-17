@@ -1,247 +1,165 @@
 # Krutrim Cloud MCP Server
 
-Use Krutrim Cloud from Cursor, Claude Desktop, Claude Code, or Codex. The MCP
-server provides discovery and controlled operations for VPCs, compute, storage,
-networking, Kubernetes, KPods, Sandboxes, and IAM.
+Use Krutrim Cloud from VS Code, Cursor, Claude Desktop, Claude Code, or Codex.
+The local stdio server provides 159 tools for discovery and controlled operations
+across compute, networking, storage, Kubernetes, KPods, Sandboxes, and IAM.
 
 ## Install
 
 ### Recommended: uvx
 
-Run the released stdio package directly from PyPI without installing it into
-your current Python environment:
+Run the pinned package without installing it into your current Python environment:
 
 ```bash
-uvx krutrim-mcp-server --version
+uvx krutrim-mcp-server@1.0.5 --version
 ```
 
 ### Python virtual environment
 
-You can also install and run the package with standard Python tooling:
-
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install krutrim-mcp-server==1.0.4
+python -m pip install krutrim-mcp-server==1.0.5
 python -m krutrim_mcp_server --version
 ```
 
-On Windows, activate the environment with `.venv\Scripts\activate`.
-
-Version `1.0.4` fixes Sandbox flavor selection and makes creation TTL optional.
-The pinned installation commands target this version once it is published on PyPI.
-Use `uvx krutrim-mcp-server@1.0.4 --version` to run that exact release.
-Future releases follow Semantic Versioning: fixes increment the patch version,
-backward-compatible features increment the minor version, and breaking changes
-increment the major version.
+On Windows, activate with `.venv\Scripts\activate`.
 
 ## Connect locally
 
-### Sign in and complete MFA
+Create a key in **Krutrim Cloud Console → Administration → API keys → Create API Key**.
+Configure `KRUTRIM_API_KEY` with the raw key, without a `Bearer` prefix or surrounding
+spaces. Keep keys private and restart the MCP client after changing the key.
 
-Sign in as the root user to obtain the access-token and refresh-token pair:
+### Create an API key with curl or Postman
 
-```bash
-curl --location \
-  'https://cloud.olakrutrim.com/iam/v1/signInAsRootUser' \
-  --header 'Content-Type: application/json' \
-  --header 'Accept: application/json' \
-  --data '{"email":"YOUR_EMAIL","password":"YOUR_PASSWORD"}'
-```
+Use `POST https://cloud.olakrutrim.com/iam/v1/apikey` with an authorized Cloud
+Console access token. This token is for key creation only; MCP uses the resulting
+API key, not the Console token.
 
-For an IAM user, use the account ID with the same flow:
+With `KRUTRIM_CONSOLE_ACCESS_TOKEN` set privately:
 
 ```bash
-curl --location \
-  'https://cloud.olakrutrim.com/iam/v1/signInAsIAMUser' \
+curl --request POST 'https://cloud.olakrutrim.com/iam/v1/apikey' \
+  --header "Authorization: Bearer ${KRUTRIM_CONSOLE_ACCESS_TOKEN}" \
   --header 'Content-Type: application/json' \
-  --header 'Accept: application/json' \
-  --data '{"accountId":"YOUR_ACCOUNT_ID","email":"YOUR_EMAIL","password":"YOUR_PASSWORD"}'
+  --header 'x-region: In-Hyderabad-1' \
+  --data '{"apiKeyName":"mcp-key"}'
 ```
 
-Keep the returned token pair private. If MFA is enabled, verify it with the
-returned access token before configuring the MCP client. Set the returned
-values in `KRUTRIM_ACCESS_TOKEN` and `KRUTRIM_REFRESH_TOKEN` through a secure
-secret manager or protected environment; do not place them in shell history.
+In Postman, import this curl request, set **Authorization → Bearer Token** to your
+Console access token, and send the JSON body. Browser cookies are not needed.
+Store the returned `secretKey` securely and use it as `KRUTRIM_API_KEY`.
 
-```bash
-curl --location \
-  'https://cloud.olakrutrim.com/iam/v1/mfa/verify' \
-  --header 'Content-Type: application/json' \
-  --header 'Authorization: Bearer YOUR_ACCESS_TOKEN' \
-  --data '{"otp":"YOUR_MFA_OTP"}'
+### VS Code
+
+Use `.vscode/mcp.json`; the masked prompt keeps the key out of the file:
+
+```json
+{
+  "servers": {
+    "krutrim-cloud": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["krutrim-mcp-server@1.0.5"],
+      "env": {
+        "KRUTRIM_API_KEY": "${input:krutrim-api-key}"
+      }
+    }
+  },
+  "inputs": [
+    {
+      "id": "krutrim-api-key",
+      "type": "promptString",
+      "description": "Krutrim Cloud API key",
+      "password": true
+    }
+  ]
+}
 ```
 
-MFA verification uses the same access token; it does not rotate the token
-pair. Run both commands only from a trusted host and keep credentials, OTPs,
-responses, transcripts, and logs private.
+### Cursor or Claude Desktop
 
-You need an IAM access token and refresh token from the same sign-in session.
-Set both in the MCP client configuration; do not put token values in source
-control.
+Use your client's private MCP configuration:
 
 ```json
 {
   "mcpServers": {
     "krutrim-cloud": {
       "command": "uvx",
-      "args": ["krutrim-mcp-server"],
+      "args": ["krutrim-mcp-server@1.0.5"],
       "env": {
-        "KRUTRIM_ACCESS_TOKEN": "YOUR_IAM_ACCESS_TOKEN",
-        "KRUTRIM_REFRESH_TOKEN": "YOUR_IAM_REFRESH_TOKEN"
+        "KRUTRIM_API_KEY": "YOUR_KRUTRIM_API_KEY"
       }
     }
   }
 }
 ```
 
-For a Python virtual-environment installation, keep the same `env` values and
-replace `command` and `args` with the virtual environment's absolute Python
-path:
+### Codex
 
-```json
-{
-  "command": "/absolute/path/to/.venv/bin/python",
-  "args": ["-m", "krutrim_mcp_server"]
-}
-```
-
-On Windows, use the absolute path to `.venv\Scripts\python.exe`.
-
-Restart the client after changing its configuration. The server refreshes the
-access token while the refresh token remains valid. When refresh is rejected,
-sign in again and replace both values.
-
-For Codex, add this to `~/.codex/config.toml`:
+Add this to your private `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.krutrim-cloud]
 enabled = true
 command = "uvx"
-args = ["krutrim-mcp-server"]
+args = ["krutrim-mcp-server@1.0.5"]
 
 [mcp_servers.krutrim-cloud.env]
-KRUTRIM_ACCESS_TOKEN = "YOUR_IAM_ACCESS_TOKEN"
-KRUTRIM_REFRESH_TOKEN = "YOUR_IAM_REFRESH_TOKEN"
+KRUTRIM_API_KEY = "YOUR_KRUTRIM_API_KEY"
 ```
 
-For a Python virtual environment, set `command` to its absolute Python path and
-set `args = ["-m", "krutrim_mcp_server"]` instead.
+For a virtual environment or local checkout, replace `command` with the absolute
+path to `.venv/bin/python` and `args` with `["-m", "krutrim_mcp_server"]`.
+On Windows, use `.venv\Scripts\python.exe`. No environment-cleanup wrapper is needed.
 
 ## Use the tools
 
-Start with a read operation, select returned identifiers and regions exactly,
-then confirm mutations. Examples:
+List resources, select exact identifiers and a supported region
+(`In-Bangalore-1` or `In-Hyderabad-1`), then confirm changes. Examples:
 
 ```text
 List my VPCs in In-Bangalore-1.
 List IAM users.
-Create a VPC in In-Hyderabad-1 with CIDR 10.20.0.0/24. Ask for confirmation first.
+Show Sandbox flavors and templates before creating a Sandbox.
 ```
-
-Mutating calls require `confirm=true`. Set `KRUTRIM_MCP_READ_ONLY=true` to block
-all mutations on a local installation.
-
-## Verify
-
-```bash
-uvx krutrim-mcp-server --list-tools
-uvx krutrim-mcp-server --doctor
-```
-
-`--list-tools` verifies the installed catalog. `--doctor` verifies local
-configuration; use a read-only Cloud tool such as `list_vpcs` to verify your
-permissions.
-
-## User guide
-
-### Before you begin
-
-Use an IAM access token and refresh token from the same sign-in session.
-Configure both `KRUTRIM_ACCESS_TOKEN` and `KRUTRIM_REFRESH_TOKEN` in your MCP
-client.
-
-Always pass one of the supported regions when a tool requires it:
-
-- `In-Bangalore-1`
-- `In-Hyderabad-1`
-
-### Recommended workflow
-
-1. List resources before changing them.
-2. Select exact identifiers returned by the list call.
-3. Review the requested change.
-4. Use `confirm=true` only after the review.
-
-For example, use `list_vpcs` before `describe_vpc` or `delete_vpc`; use
-`list_subnets` before VM creation; use a listed VM flavor instead of guessing
-one.
-
-### Common tasks
 
 | Goal | Start with |
 | --- | --- |
 | Create a VPC | `list_vpcs`, then `create_vpc` |
 | Create a VM | `list_vpcs`, `list_subnets`, and `list_compute_flavors` |
+| Allocate a floating IP | `describe_vpc`, then `create_floating_ip` |
 | Create a KPod | `list_kpod_flavors` and `list_kpod_templates` |
 | Create a Sandbox | `list_sandbox_flavors` and `list_sandbox_templates` |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
 | Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
 
-For `create_sandbox`, `ttl_seconds` is optional. Omit it (or pass `null`) to
-leave `ttlSeconds` out of the request; the server does not invent a TTL default.
-Backend expiry behavior applies when omitted—this does not promise an indefinite
-lifetime. If supplied, use an integer from 60 to 604800 seconds.
-`set_sandbox_ttl` still requires an explicit value.
+Mutations require `confirm=true`. Floating-IP allocation also requires
+`allow_public_ip=true`. Set `KRUTRIM_MCP_READ_ONLY=true` to block mutations.
+After a create timeout, check for the resource before retrying; new VMs can take
+several minutes to appear in listings.
 
-IAM operations require full IAM KRNs. Use the KRN returned by a list operation;
-do not use a UUID, a display name, or a partial identifier.
+## Verify
 
-### Safety controls
+With the API key configured privately:
 
-- Mutations require `confirm=true`.
-- `KRUTRIM_MCP_READ_ONLY=true` blocks every mutation.
-- Do not retry a timed-out create immediately. List by name or identifier first
-  to determine whether the resource was created.
-- For destructive operations, inspect the selected identifier before confirming.
-- The `create_iam_user` password is sensitive. Use it only from a trusted MCP
-  host because tool-call transcripts and host logs are outside this package's
-  control. Use the approved encrypted credential-delivery or out-of-band
-  process where applicable.
+```bash
+uvx krutrim-mcp-server@1.0.5 --list-tools
+uvx krutrim-mcp-server@1.0.5 --doctor
+```
 
-### Troubleshooting
+`--doctor` checks local configuration, not Cloud authentication. Use a read-only
+Cloud tool such as `list_vpcs` to verify access.
 
-| Problem | What to do |
-| --- | --- |
-| MCP server does not start | Check that both token variables are configured. |
-| Refresh is rejected | Sign in again, replace both tokens, and restart the client. |
-| `401` or `403` from a Cloud tool | For MFA-enabled sessions, verify MFA with the existing access token first; then verify the IAM user, service policy, and region. |
-| Required identifier is rejected | List the resource again and use its complete KRN. |
-| Tools are not visible | Restart the MCP client and run `--list-tools` locally. |
+## User guide
 
-For object-storage access keys, follow
-[Encrypted storage access-key delivery](#encrypted-storage-access-key-delivery).
+See [the user guide](docs/user-guide.md) for configuration details, safety
+controls, and troubleshooting.
 
 ## Encrypted storage access-key delivery
 
-`create_storage_access_key` delivers a ciphertext bundle, not a plaintext
-secret. Generate a recipient key on the device that will use the key:
-
-```bash
-krutrim-mcp-credentials init
-```
-
-Use the printed `public_key` and `fingerprint` in the MCP request. Ask the
-client to show the name, region, and fingerprint before you confirm creation.
-
-After the tool returns a bundle, decrypt it locally:
-
-```bash
-krutrim-mcp-credentials decrypt \
-  --bundle /path/to/storage-key.bundle.json \
-  --output ~/.config/krutrim-mcp/storage-key.json
-```
-
-Keep the private key and decrypted output on your device. Do not paste either
-into an MCP prompt, repository, ticket, or chat message. If creation times out,
-list existing keys before retrying.
+`create_storage_access_key` returns an encrypted bundle, not a plaintext secret.
+Generate a recipient key with `krutrim-mcp-credentials init`, then follow
+[Encrypted credential delivery](docs/encrypted-credential-delivery.md) to decrypt
+it on your device. Never share the private key or decrypted output.

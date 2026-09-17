@@ -14,20 +14,17 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from krutrim_mcp_server.config import Settings
 from krutrim_mcp_server.server import create_server
 from krutrim_mcp_server.tools import CONFIRM_FIELD, REGION_FIELD
-from tests.auth_tokens import TEST_ACCESS_TOKEN, TEST_REFRESH_TOKEN
 
 
 def _settings(**overrides: object) -> Settings:
     values = {
-        "api_key": None,
+        "api_key": "test-api-key-for-offline-tests",
         "base_url": "https://cloud.olakrutrim.com",
         "default_region": "",
         "read_only": False,
         "log_level": "ERROR",
         "client_max_retries": 0,
         "tool_profile": "admin",
-        "access_token": TEST_ACCESS_TOKEN,
-        "refresh_token": TEST_REFRESH_TOKEN,
     }
     values.update(overrides)
     return Settings(**values)  # type: ignore[arg-type]

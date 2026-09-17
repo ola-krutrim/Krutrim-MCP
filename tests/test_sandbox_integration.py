@@ -10,7 +10,6 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from krutrim_mcp_server.client import get_session
 from krutrim_mcp_server.config import Settings
 from krutrim_mcp_server.server import create_server
-from tests.auth_tokens import TEST_ACCESS_TOKEN, TEST_REFRESH_TOKEN
 
 READS = {
     "list_sandbox_templates",
@@ -38,12 +37,10 @@ MUTATIONS = {
 
 def _settings(**overrides):
     values = {
-        "api_key": None,
+        "api_key": "test-api-key-for-offline-tests",
         "base_url": "https://cloud.olakrutrim.com",
         "read_only": False,
         "client_max_retries": 0,
-        "access_token": TEST_ACCESS_TOKEN,
-        "refresh_token": TEST_REFRESH_TOKEN,
         "default_region": "",
         "log_level": "ERROR",
     }
@@ -55,6 +52,10 @@ def test_sandbox_catalog_and_explicit_safety_policies():
     mcp = create_server(_settings())
     tools = {tool.name: tool for tool in mcp._tool_manager.list_tools()}
     assert READS | ADDITIONS | MUTATIONS <= tools.keys()
+    assert mcp.instructions is not None
+    assert "one hour (3600 seconds)" in mcp.instructions
+    assert "1 minute to 7 days" in mcp.instructions
+    assert "require explicit flavor, template, and TTL choices" not in mcp.instructions
     for name in READS | ADDITIONS | MUTATIONS:
         tool = tools[name]
         assert tool.annotations.readOnlyHint is (name in READS)
@@ -103,12 +104,17 @@ async def test_create_protocol_supports_optional_ttl(monkeypatch, ttl_args, stat
             assert listing.isError is False
             public_catalog = listing.structuredContent["data"]
             assert public_catalog["data"][0]["name"] == "sandbox-nano"
-            assert "flavor_status" not in json.dumps(public_catalog["data"])
-            assert "flavorStatus" not in json.dumps(public_catalog["data"])
+            group = public_catalog["data"][0]["group_by"]
+            public_status_key = "flavor_status" if status_key == "flavorStatus" else status_key
+            assert group[public_status_key] == "active"
             guidance = public_catalog["selection_guidance"]
-            assert "intentionally omitted" in guidance
-            assert "not evidence" in guidance
-            assert "Do not poll" in guidance
+            assert "snapshot" in guidance
+            assert "not a guarantee" in guidance
+            catalog = await client.list_tools()
+            create = next(tool for tool in catalog.tools if tool.name == "create_sandbox")
+            for text in ("one hour", "1 minute to 7 days", "3600"):
+                assert text in create.description
+                assert text in create.inputSchema["properties"]["ttl_seconds"]["description"]
             result = await client.call_tool(
                 "create_sandbox",
                 {

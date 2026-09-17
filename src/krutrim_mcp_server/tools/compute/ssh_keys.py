@@ -22,7 +22,14 @@ def register(mcp: Any) -> None:
         page: int = 1,
         limit: int = 10,
     ) -> str:
-        """List SSH keys for a customer_id in a region."""
+        """List SSH keys for a customer_id in a region.
+
+        customer_id is the account UUID — the 5th segment of any full,
+        unmasked KRN you own (krn:vpc:<region>:<tenant>:<customer_id>:...).
+        No listing tool returns it directly; take it from a full resource KRN
+        (e.g. from create_vpc / create_instance results) or from the Krutrim
+        Cloud console.
+        """
 
         def _run() -> Any:
             client = get_session().get_client()

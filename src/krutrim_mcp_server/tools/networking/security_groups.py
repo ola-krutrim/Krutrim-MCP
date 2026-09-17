@@ -241,17 +241,25 @@ def _create_and_attach_rule(
 def register(mcp: Any) -> None:
     @mcp.tool()
     def list_security_groups(
-        vpc_krn: str,
+        vpc_id: str = "",
         region: Region = REGION_FIELD,
         limit: Optional[Limit] = None,
         offset: Optional[Offset] = None,
+        vpc_krn: str = "",
     ) -> str:
-        """List security groups for a VPC (pass VPC KRN identifier)."""
+        """List security groups for a VPC.
+
+        Pass the VPC KRN as vpc_id (same identifier the neighbouring VPC and
+        subnet tools use); vpc_krn is accepted as a legacy alias.
+        """
 
         def _run() -> Any:
+            resolved_vpc = (vpc_id or vpc_krn).strip()
+            if not resolved_vpc:
+                raise ValueError("vpc_id is required (full VPC KRN)")
             client = get_session().get_client()
             kwargs: dict[str, Any] = {
-                "vpc_krn_identifier": vpc_krn,
+                "vpc_krn_identifier": resolved_vpc,
                 "x_region": resolve_region(region),
             }
             if limit is not None:

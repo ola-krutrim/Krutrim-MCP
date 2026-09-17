@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.0.5 — 2026-09-17
+
+Simplify authentication and improve VM networking.
+
+- Authenticate with a single `KRUTRIM_API_KEY`; token pairs are no longer used.
+- Credentials are redacted from tool output and logs.
+- Subnet discovery works again; VM creation is no longer blocked by empty subnet lists.
+- New: allocate a floating IP (explicit approval required) and delete a subnet.
+- VM creation waits up to 10 minutes by default (`KRUTRIM_CREATE_TIMEOUT_SECONDS`);
+  timeout messages now warn before retrying to avoid duplicate VMs.
+- `list_security_groups` accepts `vpc_id` (`vpc_krn` still works);
+  `describe_instance` returns `ip_addresses` as structured data.
+- Sandbox listings show availability and status; expiry defaults to one hour
+  (configurable from 1 minute to 7 days).
+- Update the bundled Krutrim SDK to 0.6.2 (Sandbox catalog and command fixes);
+  Sandbox flavor listings keep the same output shape.
+
 ## 1.0.4 — 2026-09-16
 
 Fix Sandbox creation and improve setup options.
