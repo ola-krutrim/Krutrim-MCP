@@ -512,7 +512,7 @@ def test_create_security_group_rule_requires_ports_for_specific_protocol(server)
 
     with pytest.raises(
         ToolError,
-        match="port_min and port_max are required unless protocol=all",
+        match="port_min and port_max are required unless protocol is 'all' or 'icmp'",
     ):
         tool.fn(
             vpc_id="vpc-1",
@@ -558,6 +558,96 @@ def test_create_security_group_rule_maps_all_to_api_range(
         vpcid="vpc-1",
         x_region="In-Hyderabad-1",
     )
+
+
+def test_create_security_group_rule_icmp_without_ports_maps_to_api_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.securityGroup.create_rule.return_value = {"id": "rule-icmp"}
+
+    srv = create_server(_settings())
+    from krutrim_mcp_server import client as client_mod
+
+    monkeypatch.setattr(client_mod.get_session(), "get_client", lambda: mock_client)
+
+    tool = srv._tool_manager.get_tool("create_security_group_rule")
+    result = tool.fn(
+        vpc_id="vpc-1",
+        direction="ingress",
+        ethertype="ipv4",
+        protocol="icmp",
+        remote_ip_prefix="203.0.113.10/32",
+        region="In-Hyderabad-1",
+        confirm=True,
+    )
+
+    assert result.ok is True
+    mock_client.securityGroup.create_rule.assert_called_once_with(
+        direction="ingress",
+        ethertypes="ipv4",
+        port_max_range=65535,
+        port_min_range=1,
+        protocol="icmp",
+        remote_ip_prefix="203.0.113.10/32",
+        vpcid="vpc-1",
+        x_region="In-Hyderabad-1",
+    )
+
+
+def test_create_security_group_rule_icmp_with_explicit_ports_passes_through(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.securityGroup.create_rule.return_value = {"id": "rule-icmp-typed"}
+
+    srv = create_server(_settings())
+    from krutrim_mcp_server import client as client_mod
+
+    monkeypatch.setattr(client_mod.get_session(), "get_client", lambda: mock_client)
+
+    tool = srv._tool_manager.get_tool("create_security_group_rule")
+    result = tool.fn(
+        vpc_id="vpc-1",
+        direction="ingress",
+        ethertype="ipv4",
+        protocol="icmp",
+        port_min=8,
+        port_max=8,
+        remote_ip_prefix="203.0.113.10/32",
+        region="In-Hyderabad-1",
+        confirm=True,
+    )
+
+    assert result.ok is True
+    mock_client.securityGroup.create_rule.assert_called_once_with(
+        direction="ingress",
+        ethertypes="ipv4",
+        port_max_range=8,
+        port_min_range=8,
+        protocol="icmp",
+        remote_ip_prefix="203.0.113.10/32",
+        vpcid="vpc-1",
+        x_region="In-Hyderabad-1",
+    )
+
+
+def test_create_security_group_rule_tcp_still_requires_ports(server) -> None:
+    tool = server._tool_manager.get_tool("create_security_group_rule")
+
+    with pytest.raises(
+        ToolError,
+        match="port_min and port_max are required",
+    ):
+        tool.fn(
+            vpc_id="vpc-1",
+            direction="ingress",
+            ethertype="ipv4",
+            protocol="udp",
+            remote_ip_prefix="203.0.113.10/32",
+            region="In-Hyderabad-1",
+            confirm=True,
+        )
 
 
 def test_create_security_group_without_rule_only_creates_group(

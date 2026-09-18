@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.6 — 2026-09-18
+
+- Security-group rules accept `protocol="icmp"` without ports (allows ping
+  without opening all protocols); explicit ICMP type/code values still pass through.
+
 ## 1.0.5 — 2026-09-17
 
 Simplify authentication and improve VM networking.

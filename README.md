@@ -154,7 +154,7 @@ Cloud tool such as `list_vpcs` to verify access.
 
 ## User guide
 
-See [the user guide](docs/user-guide.md) for configuration details, safety
+See the [user guide](https://docs.cloud.olakrutrim.com/mcp/overview) for configuration details, safety
 controls, and troubleshooting.
 
 ## Encrypted storage access-key delivery

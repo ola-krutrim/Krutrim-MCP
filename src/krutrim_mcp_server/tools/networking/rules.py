@@ -14,7 +14,8 @@ Port = Annotated[
         le=65535,
         description=(
             "User-supplied inclusive port or range boundary. Required unless protocol "
-            "is 'all'; the MCP maps 'all' to the API range 1 through 65535."
+            "is 'all' or 'icmp'; the MCP maps 'all' (and portless 'icmp') to the API "
+            "range 1 through 65535."
         ),
     ),
 ]
@@ -52,7 +53,8 @@ RuleRequestAcknowledgement = Annotated[
         description=(
             "Set true only when the user explicitly requested a security-group rule and "
             "supplied its direction, ethertype, protocol, and remote prefix. The user must "
-            "also supply ports unless protocol is 'all', which maps to 1-65535. Never infer "
+            "also supply ports unless protocol is 'all' or 'icmp'; both map to 1-65535 "
+            "when ports are omitted. Never infer "
             "a rule from a security-group-only request."
         )
     ),
@@ -65,11 +67,17 @@ def normalize_security_group_rule_ports(
     port_min: int | None,
     port_max: int | None,
 ) -> tuple[int, int]:
-    """Return the API port range, deriving only the fixed all-protocol range."""
+    """Return the API port range, deriving fixed ranges for portless protocols."""
     if protocol == "all":
         return ALL_PROTOCOL_PORT_MIN, ALL_PROTOCOL_PORT_MAX
+    if protocol == "icmp" and port_min is None and port_max is None:
+        # ICMP has no ports; the API still requires a range >= 1, so send the
+        # full range to allow all ICMP while keeping the grant ICMP-only.
+        return ALL_PROTOCOL_PORT_MIN, ALL_PROTOCOL_PORT_MAX
     if port_min is None or port_max is None:
-        raise ValueError("port_min and port_max are required unless protocol=all")
+        raise ValueError(
+            "port_min and port_max are required unless protocol is 'all' or 'icmp'"
+        )
     if port_min > port_max:
         raise ValueError("port_min must be less than or equal to port_max")
     return port_min, port_max

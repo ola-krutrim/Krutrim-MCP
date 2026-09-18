@@ -305,7 +305,7 @@ def register(mcp: Any) -> None:
                         "Creating a rule with the security group requires "
                         "rule_requested_by_user=true after the user explicitly supplies "
                         "direction, ethertype, protocol, remote_ip_prefix, and ports "
-                        "unless protocol=all"
+                        "unless protocol is 'all' or 'icmp'"
                     )
                 normalized_port_min, normalized_port_max = validate_security_group_rule(
                     direction=rule.direction,
