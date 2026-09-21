@@ -5,7 +5,27 @@ from __future__ import annotations
 from krutrim_mcp_server.logging_utils import redact_text
 
 
+def _find_masked_krn_cause(exc: BaseException) -> BaseException | None:
+    """Unwrap transport wrappers hiding the masked-KRN guard's ValueError.
+
+    The wire-level guard raises inside httpx, so the SDK surfaces it as an
+    APIConnectionError; walk the cause chain to recover the actionable message.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ValueError) and ":***:" in str(current):
+            return current
+        current = current.__cause__ or current.__context__
+    return None
+
+
 def format_error(exc: BaseException) -> str:
+    masked = _find_masked_krn_cause(exc)
+    if masked is not None:
+        return redact_text(str(masked))
+
     name = type(exc).__name__
     message = redact_text(str(exc).strip() or repr(exc))
 

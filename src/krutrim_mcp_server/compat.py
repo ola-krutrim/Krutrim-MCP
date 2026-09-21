@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import unquote
 
 from krutrim_client import KrutrimClient
 
@@ -90,8 +91,46 @@ def _patch_validator(resource: Any, name: str) -> bool:
     return True
 
 
+def _masked_krn_message(where: str) -> str:
+    return (
+        f"Request {where} contains a masked Krutrim KRN (an account segment "
+        "redacted as ':***:'). Krutrim tool output redacts the account id in "
+        "returned KRNs, but the API rejects masked KRNs as input. Replace "
+        "'***' with your account (customer) UUID — the 5th segment of any "
+        "full KRN you own — before calling this tool."
+    )
+
+
+def _reject_masked_krns_in_request(request: Any) -> None:
+    """httpx request hook: fail fast when a masked ':***:' KRN reaches the wire.
+
+    Every Krutrim API rejects masked KRNs (with opaque 400/404 errors), so no
+    valid request ever carries ':***:' in its URL or body. Guarding at the
+    transport layer protects all tools at once, including future ones.
+    """
+    url = str(request.url)
+    if ":***:" in unquote(url):
+        raise ValueError(_masked_krn_message(f"URL {url!r}"))
+    content = getattr(request, "content", b"") or b""
+    if isinstance(content, bytes) and b":***:" in content:
+        raise ValueError(_masked_krn_message("body"))
+
+
+def _install_masked_krn_guard(client: KrutrimClient) -> None:
+    http_client = getattr(client, "_client", None)
+    event_hooks = getattr(http_client, "event_hooks", None)
+    if not isinstance(event_hooks, dict):  # pragma: no cover - unexpected SDK shape
+        return
+    hooks = event_hooks.setdefault("request", [])
+    if any(getattr(h, "_krutrim_mcp_masked_guard", False) for h in hooks):
+        return
+    _reject_masked_krns_in_request._krutrim_mcp_masked_guard = True  # type: ignore[attr-defined]
+    hooks.append(_reject_masked_krns_in_request)
+
+
 def patch_client_compatibility(client: KrutrimClient) -> None:
     """Patch only verified high-level VPC sync-validator drift."""
+    _install_masked_krn_guard(client)
     resource = getattr(client, "highlvlvpc", None)
     if resource is None:
         return

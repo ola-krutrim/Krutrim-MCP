@@ -14,6 +14,25 @@ from krutrim_mcp_server.tools import (
 )
 
 
+def _resolve_ssh_key_uuid(ssh_key_id: str) -> str:
+    """Return the key UUID the API requires, accepting a UUID or a full KRN.
+
+    The backend returns SSH keys with a `uuid` field and a KRN in `_id`
+    (there is no `id` field), and its delete endpoint accepts only the UUID.
+    KRNs — including masked ones with a ':***:' account segment — carry the
+    UUID as their last segment, so extract it rather than failing.
+    """
+    value = ssh_key_id.strip()
+    if not value:
+        raise ValueError("ssh_key_id must be a non-empty SSH key UUID or KRN")
+    if value.startswith("krn:"):
+        candidate = value.rsplit(":", 1)[-1]
+        if not candidate:
+            raise ValueError(f"could not extract a key UUID from KRN {value!r}")
+        return candidate
+    return value
+
+
 def register(mcp: Any) -> None:
     @mcp.tool()
     def list_ssh_keys(
@@ -29,6 +48,10 @@ def register(mcp: Any) -> None:
         No listing tool returns it directly; take it from a full resource KRN
         (e.g. from create_vpc / create_instance results) or from the Krutrim
         Cloud console.
+
+        Each key's usable identifier is its `uuid` field (use it for
+        delete_ssh_key); the API does not populate `id`, and `_id` holds the
+        key's KRN.
         """
 
         def _run() -> Any:
@@ -72,17 +95,24 @@ def register(mcp: Any) -> None:
         confirm: bool = CONFIRM_FIELD,
         region: Region = REGION_FIELD,
     ) -> str:
-        """Delete an SSH key."""
+        """Delete an SSH key.
+
+        ssh_key_id is the key's `uuid` field from list_ssh_keys or the create
+        response (the API does not populate `id`). A full key KRN — even one
+        with a masked ':***:' account segment — is also accepted; the UUID is
+        its last segment.
+        """
 
         def _run() -> Any:
             ensure_writable(settings(), "delete_ssh_key")
-            ensure_confirmed(confirm, "delete_ssh_key", ssh_key_id)
+            key_uuid = _resolve_ssh_key_uuid(ssh_key_id)
+            ensure_confirmed(confirm, "delete_ssh_key", key_uuid)
             client = get_session().get_client()
             client.sshkey.delete_sshkey(
-                ssh_key_id,
+                key_uuid,
                 x_region=resolve_region(region),
                 customer_id=customer_id,
             )
-            return {"deleted": True, "ssh_key_id": ssh_key_id}
+            return {"deleted": True, "ssh_key_id": key_uuid}
 
         return run_tool(_run)

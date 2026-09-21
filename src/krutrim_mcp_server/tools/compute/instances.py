@@ -158,9 +158,12 @@ def register(mcp: Any) -> None:
     ) -> str:
         """List VM instances in a VPC.
 
-        Newly created instances may take a few minutes to appear here; an empty
-        result immediately after create_instance does not prove the create
-        failed.
+        This listing may omit instances that are not yet running: newly
+        created instances can take minutes to appear, and failed creates may
+        never appear here at all. An empty result immediately after
+        create_instance does not prove the create failed — use
+        search_instances, which also returns instances in 'build'/'CREATING'
+        or 'failed' states along with their failure_reason.
         """
 
         def _run() -> Any:
@@ -198,7 +201,12 @@ def register(mcp: Any) -> None:
         page: Optional[int] = None,
         limit: Optional[int] = None,
     ) -> str:
-        """Search VM instances in a VPC
+        """Search VM instances in a VPC.
+
+        Unlike list_instances, this includes instances in non-running states
+        ('build'/'CREATING', 'ERROR', 'failed') with their failed_step and
+        failure_reason — use it to verify the outcome of a create_instance
+        call.
         """
 
         def _run() -> Any:
@@ -291,9 +299,11 @@ def register(mcp: Any) -> None:
         never the parent network KRN.
 
         Never blindly retry this tool after a timeout: the VM is usually still
-        created server-side. Newly created instances can also take a while to
-        appear in list_instances, so poll list_instances for at least 2-3 minutes
-        before concluding that the create failed.
+        created server-side. Use search_instances (not list_instances) to check
+        the outcome — it also shows instances still in 'build'/'CREATING' state
+        and failed creates with their failure_reason, which list_instances may
+        omit entirely. Poll for at least 2-3 minutes before concluding that the
+        create failed.
         """
 
         def _run() -> Any:
@@ -391,8 +401,8 @@ def register(mcp: Any) -> None:
                 raise TimeoutError(
                     "create_instance timed out client-side, but the VM was most "
                     "likely still created server-side and may be billing. Do NOT "
-                    "retry immediately: newly created instances can take a few "
-                    "minutes to appear in list_instances. Poll list_instances "
+                    "retry immediately: poll search_instances (which also shows "
+                    "'build' and 'failed' instances that list_instances may omit) "
                     f"for instance name {instance_name!r} for at least 2-3 "
                     "minutes before creating another VM, and delete any "
                     "duplicates you find."

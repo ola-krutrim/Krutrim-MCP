@@ -117,7 +117,7 @@ def test_create_instance_timeout_error_warns_against_blind_retry(
     assert "still created server-side" in message
     assert "Do NOT retry" in message
     assert "timeout-guard-vm" in message
-    assert "list_instances" in message
+    assert "search_instances" in message
 
 
 _TIMEOUT_FIELDS = (

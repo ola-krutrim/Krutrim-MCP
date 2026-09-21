@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.7 — 2026-09-21
+
+- `delete_ssh_key` accepts the key's `uuid` or its KRN (even masked); the API
+  does not populate `id`, and listings now document `uuid` as the identifier.
+- All 159 tools reject masked `:***:` KRNs before any API call (wire-level
+  guard) with a clear fix-it message instead of an opaque API error.
+- `create_instance` timeout guidance and instance-listing docs now point to
+  `search_instances`, which shows building and failed instances (with
+  failure_reason) that `list_instances` may omit.
+
 ## 1.0.6 — 2026-09-18
 
 - Security-group rules accept `protocol="icmp"` without ports (allows ping

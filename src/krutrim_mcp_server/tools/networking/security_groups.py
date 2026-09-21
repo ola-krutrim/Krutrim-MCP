@@ -99,6 +99,19 @@ def _created_security_group_id(response: Any) -> str | None:
     return _find(payload, _SECURITY_GROUP_ID_KEYS) or _find(payload, {"id", "krn"})
 
 
+def _reject_masked_krn(value: str, *, label: str) -> str:
+    """Fail fast on KRNs whose account segment was redacted in tool output."""
+    normalized = (value or "").strip()
+    if ":***:" in normalized:
+        raise ValueError(
+            f"{label} contains a masked account segment (':***:'). Krutrim "
+            "tool output redacts the account id in returned KRNs, but the API "
+            "rejects masked KRNs as input. Replace '***' with your account "
+            "(customer) UUID before calling this tool."
+        )
+    return normalized
+
+
 def _create_rule(
     client: Any,
     *,
@@ -418,9 +431,11 @@ def register(mcp: Any) -> None:
             ensure_confirmed(confirm, "attach_security_group_rule", rule_id)
             client = get_session().get_client()
             return client.securityGroup.attach_rule(
-                ruleid=rule_id,
-                securityid=security_group_id,
-                vpcid=vpc_id,
+                ruleid=_reject_masked_krn(rule_id, label="rule_id"),
+                securityid=_reject_masked_krn(
+                    security_group_id, label="security_group_id"
+                ),
+                vpcid=_reject_masked_krn(vpc_id, label="vpc_id"),
                 x_region=resolve_region(region),
             )
 
@@ -492,9 +507,11 @@ def register(mcp: Any) -> None:
             ensure_confirmed(confirm, "detach_security_group_rule", rule_id)
             client = get_session().get_client()
             return client.securityGroup.detach_rule(
-                ruleid=rule_id,
-                securityid=security_group_id,
-                vpcid=vpc_id,
+                ruleid=_reject_masked_krn(rule_id, label="rule_id"),
+                securityid=_reject_masked_krn(
+                    security_group_id, label="security_group_id"
+                ),
+                vpcid=_reject_masked_krn(vpc_id, label="vpc_id"),
                 x_region=resolve_region(region),
             )
 
@@ -512,8 +529,11 @@ def register(mcp: Any) -> None:
             ensure_writable(settings(), "delete_security_group_rule")
             ensure_confirmed(confirm, "delete_security_group_rule", rule_id)
             client = get_session().get_client()
-            client.securityGroup.delete_rule(rule_id, x_region=resolve_region(region))
-            return {"deleted": True, "rule_id": rule_id}
+            checked_rule_id = _reject_masked_krn(rule_id, label="rule_id")
+            client.securityGroup.delete_rule(
+                checked_rule_id, x_region=resolve_region(region)
+            )
+            return {"deleted": True, "rule_id": checked_rule_id}
 
         return run_tool(_run)
 
@@ -529,9 +549,12 @@ def register(mcp: Any) -> None:
             ensure_writable(settings(), "delete_security_group")
             ensure_confirmed(confirm, "delete_security_group", security_group_id)
             client = get_session().get_client()
-            client.securityGroup.delete_security_group(
-                security_group_id, x_region=resolve_region(region)
+            checked_sg_id = _reject_masked_krn(
+                security_group_id, label="security_group_id"
             )
-            return {"deleted": True, "security_group_id": security_group_id}
+            client.securityGroup.delete_security_group(
+                checked_sg_id, x_region=resolve_region(region)
+            )
+            return {"deleted": True, "security_group_id": checked_sg_id}
 
         return run_tool(_run)
