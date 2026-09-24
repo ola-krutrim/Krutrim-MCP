@@ -159,7 +159,12 @@ def register(mcp: Any) -> None:
 
     @mcp.tool()
     def get_vpc_task_status(task_id: str, region: Region = REGION_FIELD) -> str:
-        """Poll async VPC create/update task status by task_id."""
+        """Poll async VPC create/update task status by task_id.
+
+        VPC-creation tasks only. For the task_id returned by create_instance,
+        use get_instance_task_status instead — this endpoint returns
+        'Record not found' for instance task_ids.
+        """
 
         def _run() -> Any:
             client = get_session().get_client()

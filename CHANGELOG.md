@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.8 — 2026-09-24
+
+- New `get_instance_task_status` tool: poll the task_id returned by
+  `create_instance` (the existing `get_vpc_task_status` only tracks VPC
+  creation and cannot resolve instance task ids).
+- `create_instance` guidance and timeout error now point to
+  `get_instance_task_status` first, then `search_instances`.
+- krutrim-client SDK 0.6.2 → 0.6.4.
+
 ## 1.0.7 — 2026-09-21
 
 - `delete_ssh_key` accepts the key's `uuid` or its KRN (even masked); the API

@@ -63,7 +63,7 @@ async def test_configured_key_reaches_sdk_through_mcp(
     try:
         async with create_connected_server_and_client_session(server._mcp_server) as protocol:
             tools = await protocol.list_tools()
-            assert len(tools.tools) == 159
+            assert len(tools.tools) == 160
             assert requests == []
             ping = await protocol.call_tool("krutrim_ping", {})
             assert ping.isError is False

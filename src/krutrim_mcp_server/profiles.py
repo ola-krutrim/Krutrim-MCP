@@ -37,6 +37,7 @@ READ_ONLY_TOOLS = {
     "get_iam_role",
     "get_iam_group",
     "get_iam_user",
+    "get_instance_task_status",
     "get_kks_kubeconfig",
     "get_vpc_task_status",
     "krutrim_ping",

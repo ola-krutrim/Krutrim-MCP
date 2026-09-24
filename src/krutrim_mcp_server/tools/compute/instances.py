@@ -270,6 +270,24 @@ def register(mcp: Any) -> None:
         return run_tool(_run)
 
     @mcp.tool()
+    def get_instance_task_status(task_id: str, region: Region = REGION_FIELD) -> str:
+        """Poll a VM create/delete task by the task_id returned from create_instance.
+
+        This is the correct endpoint for instance task_ids; get_vpc_task_status
+        only tracks VPC-creation tasks and returns 'Record not found' for
+        instance task_ids.
+        """
+
+        def _run() -> Any:
+            client = get_session().get_client()
+            return client.highlvlvpc.get_instance_task_status(
+                task_id=task_id,
+                extra_headers={"x-region": resolve_region(region)},
+            )
+
+        return run_tool(_run)
+
+    @mcp.tool()
     def create_instance(
         instance_name: str,
         instance_type: ComputeFlavorName,
@@ -299,11 +317,12 @@ def register(mcp: Any) -> None:
         never the parent network KRN.
 
         Never blindly retry this tool after a timeout: the VM is usually still
-        created server-side. Use search_instances (not list_instances) to check
-        the outcome — it also shows instances still in 'build'/'CREATING' state
-        and failed creates with their failure_reason, which list_instances may
-        omit entirely. Poll for at least 2-3 minutes before concluding that the
-        create failed.
+        created server-side. Poll get_instance_task_status with the returned
+        task_id to check the outcome of this exact create; use search_instances
+        (not list_instances) as the listing fallback — it also shows instances
+        still in 'build'/'CREATING' state and failed creates with their
+        failure_reason, which list_instances may omit entirely. Poll for at
+        least 2-3 minutes before concluding that the create failed.
         """
 
         def _run() -> Any:
@@ -401,9 +420,10 @@ def register(mcp: Any) -> None:
                 raise TimeoutError(
                     "create_instance timed out client-side, but the VM was most "
                     "likely still created server-side and may be billing. Do NOT "
-                    "retry immediately: poll search_instances (which also shows "
-                    "'build' and 'failed' instances that list_instances may omit) "
-                    f"for instance name {instance_name!r} for at least 2-3 "
+                    "retry immediately: poll get_instance_task_status with the "
+                    "task_id if one was returned, or search_instances (which also "
+                    "shows 'build' and 'failed' instances that list_instances may "
+                    f"omit) for instance name {instance_name!r} for at least 2-3 "
                     "minutes before creating another VM, and delete any "
                     "duplicates you find."
                 ) from exc
