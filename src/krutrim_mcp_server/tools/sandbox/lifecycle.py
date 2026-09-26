@@ -119,25 +119,36 @@ def _require_live_selection(
 ) -> None:
     # SDK models coerce numeric-string IDs. Validate raw SDK responses strictly
     # before trusting a catalog to authorize a chargeable operation.
-    try:
-        templates = TypeAdapter(list[_Template]).validate_python(
-            api.with_raw_response.list_templates().json()
-        )
-    except ValidationError:
-        raise ValueError("Malformed live Sandbox template catalog; creation blocked") from None
-    matches = [
-        item
-        for item in templates
+    #
+    # A template is optional: when neither identifier is supplied the backend
+    # applies its own default, so there is nothing to validate against the
+    # catalog. The flavor preflight below still runs, because that is the check
+    # that guards a chargeable operation.
+    if template_id is not None or template_name is not None:
+        try:
+            templates = TypeAdapter(list[_Template]).validate_python(
+                api.with_raw_response.list_templates().json()
+            )
+        except ValidationError:
+            raise ValueError("Malformed live Sandbox template catalog; creation blocked") from None
+        matches = [
+            item
+            for item in templates
+            if (
+                item.id == template_id
+                if template_id is not None
+                else item.template_name == template_name
+            )
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "Sandbox template selection is missing or ambiguous in the live catalog"
+            )
         if (
-            item.id == template_id
-            if template_id is not None
-            else item.template_name == template_name
-        )
-    ]
-    if len(matches) != 1:
-        raise ValueError("Sandbox template selection is missing or ambiguous in the live catalog")
-    if matches[0].supported_services is not None and "sandbox" not in matches[0].supported_services:
-        raise ValueError("Selected template does not support Sandbox")
+            matches[0].supported_services is not None
+            and "sandbox" not in matches[0].supported_services
+        ):
+            raise ValueError("Selected template does not support Sandbox")
     try:
         flavors = _Flavors.model_validate(api.with_raw_response.list_flavors(region=region).json())
     except ValidationError:
@@ -221,7 +232,9 @@ def register(mcp: Any) -> None:
         flavorStatus) to be exactly active. Ignore separate availability labels;
         after explicit confirmation, attempt creation once. The create API decides
         provisioning acceptance, which does not guarantee readiness.
-        Select exactly one template_id or template_name; no template is inferred.
+        Select at most one of template_id or template_name. Both may be omitted,
+        in which case no template field is sent and the backend applies its own
+        default; passing both is rejected.
         Expiry (TTL) specifies how long the sandbox remains active. The default is
         one hour (3600 seconds). Supported duration: 1 minute to 7 days
         (60–604800 seconds). Explain this expiry before requesting confirmation.
@@ -240,8 +253,8 @@ def register(mcp: Any) -> None:
             TypeAdapter(TTL | None).validate_python(ttl_seconds)
             TypeAdapter(TemplateID | None).validate_python(template_id)
             TypeAdapter(SelectionName | None).validate_python(template_name)
-            if (template_id is None) == (template_name is None):
-                raise ValueError("Select exactly one explicit template_id or template_name")
+            if template_id is not None and template_name is not None:
+                raise ValueError("Select at most one of template_id or template_name")
             try:
                 TypeAdapter(Environment | None).validate_python(environment_variables)
             except ValidationError:

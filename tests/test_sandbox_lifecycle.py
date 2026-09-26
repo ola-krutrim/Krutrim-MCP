@@ -728,6 +728,49 @@ def test_create_omits_unspecified_ttl_from_sdk_payload(harness, ttl_args):
     }
 
 
+def test_create_without_template_omits_the_field_entirely(harness):
+    """A create with no template must reach the API with no template field.
+
+    The backend rejects unknown fields, so templateId/templateName must be
+    absent rather than null when the caller selects no template.
+    """
+    prepare_create(harness)
+    args = {
+        key: value
+        for key, value in CREATE.items()
+        if key not in {"ttl_seconds", "template_id", "template_name"}
+    }
+    result = harness.call("create_sandbox", **args)
+    assert result.data["status"] == 202
+    posts = [r for r in harness.requests if r.method == "POST"]
+    assert len(posts) == 1
+    body = json.loads(posts[0].content)
+    assert "templateId" not in body
+    assert "templateName" not in body
+    assert body == {"sandboxName": "demo-1", "region": REGION, "flavorName": "cpu-small"}
+
+
+def test_create_without_template_skips_the_template_catalog_lookup(harness):
+    """With no template selected there is nothing to validate, so do not fetch it."""
+    prepare_create(harness)
+    args = {
+        key: value
+        for key, value in CREATE.items()
+        if key not in {"ttl_seconds", "template_id", "template_name"}
+    }
+    harness.call("create_sandbox", **args)
+    assert not any(r.url.path.endswith("/template") for r in harness.requests)
+
+
+def test_create_rejects_both_template_identifiers(harness):
+    """Ambiguity is still an error; only the 'neither' case was relaxed."""
+    prepare_create(harness)
+    args = CREATE | {"template_id": 17, "template_name": "python"}
+    with pytest.raises(ToolError):
+        harness.call("create_sandbox", **args)
+    assert all(r.method == "GET" for r in harness.requests)
+
+
 @pytest.mark.parametrize("ttl", [60, 1200, 604800])
 def test_create_sends_explicit_ttl_unchanged(harness, ttl):
     prepare_create(harness)
@@ -886,7 +929,9 @@ def test_create_guards_precede_catalog_client_access(harness, read_only, confirm
             for v in ["", "1demo", "Demo", "demo_1", "demo-", "a" * 64, " demo", "demo\n", 123]
         ],
         *[{"ttl_seconds": v} for v in [59, 604801, True, "60", 60.0]],
-        *[{"template_id": v} for v in [None, True, "17", 17.0, 0, -1]],
+        # None is no longer invalid: omitting the template is a supported call
+        # shape, covered by test_create_without_template_omits_the_field_entirely.
+        *[{"template_id": v} for v in [True, "17", 17.0, 0, -1]],
         {"template_name": "python"},
         {"template_id": None, "template_name": ""},
         {"template_id": None, "template_name": " python"},
