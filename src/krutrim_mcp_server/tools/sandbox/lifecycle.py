@@ -1,5 +1,6 @@
 """Guarded Sandbox lifecycle tools using the non-polling SDK API."""
 
+from base64 import b64encode
 from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
@@ -38,7 +39,6 @@ SelectionName = Annotated[
     StrictStr,
     Field(min_length=1, pattern=r"^[^\s\x00-\x1f\x7f](?:[^\x00-\x1f\x7f]*[^\s\x00-\x1f\x7f])?$"),
 ]
-TemplateID = Annotated[StrictInt, Field(ge=1)]
 Page = Annotated[StrictInt, Field(ge=1)]
 Limit = Annotated[StrictInt, Field(ge=1, le=100)]
 Status = Literal["deploying", "active", "deleting", "failed_deploy"]
@@ -61,12 +61,6 @@ Environment = Annotated[dict[StrictStr, StrictStr], Field(strict=True)]
 
 class _CatalogModel(BaseModel):
     model_config = ConfigDict(strict=True)
-
-
-class _Template(_CatalogModel):
-    id: TemplateID = Field(alias="ID")
-    template_name: SelectionName
-    supported_services: list[Literal["endpoint", "aipod", "sandbox"]] | None = None
 
 
 class _FlavorGroup(_CatalogModel):
@@ -114,30 +108,9 @@ def _require_live_selection(
     api: Any,
     region: str,
     flavor_name: str,
-    template_id: int | None,
-    template_name: str | None,
 ) -> None:
     # SDK models coerce numeric-string IDs. Validate raw SDK responses strictly
     # before trusting a catalog to authorize a chargeable operation.
-    try:
-        templates = TypeAdapter(list[_Template]).validate_python(
-            api.with_raw_response.list_templates().json()
-        )
-    except ValidationError:
-        raise ValueError("Malformed live Sandbox template catalog; creation blocked") from None
-    matches = [
-        item
-        for item in templates
-        if (
-            item.id == template_id
-            if template_id is not None
-            else item.template_name == template_name
-        )
-    ]
-    if len(matches) != 1:
-        raise ValueError("Sandbox template selection is missing or ambiguous in the live catalog")
-    if matches[0].supported_services is not None and "sandbox" not in matches[0].supported_services:
-        raise ValueError("Selected template does not support Sandbox")
     try:
         flavors = _Flavors.model_validate(api.with_raw_response.list_flavors(region=region).json())
     except ValidationError:
@@ -210,18 +183,18 @@ def register(mcp: Any) -> None:
                 )
             ),
         ] = None,
-        template_id: TemplateID | None = None,
-        template_name: SelectionName | None = None,
         environment_variables: Environment | None = None,
         network_storages: NetworkStorages | None = None,
     ) -> ToolSuccess:
-        """Request a Sandbox using an exact live template and flavor.
+        """Request a Sandbox using an exact live flavor.
 
         Creation requires the selected flavor's live status (flavorstatus or
         flavorStatus) to be exactly active. Ignore separate availability labels;
         after explicit confirmation, attempt creation once. The create API decides
         provisioning acceptance, which does not guarantee readiness.
-        Select exactly one template_id or template_name; no template is inferred.
+        The runtime template is chosen by the backend; it is not selectable here.
+        environment_variables take plain-text values; they are base64-encoded
+        on the wire as the backend requires.
         Expiry (TTL) specifies how long the sandbox remains active. The default is
         one hour (3600 seconds). Supported duration: 1 minute to 7 days
         (60–604800 seconds). Explain this expiry before requesting confirmation.
@@ -238,10 +211,6 @@ def register(mcp: Any) -> None:
             TypeAdapter(Region).validate_python(region)
             TypeAdapter(SelectionName).validate_python(flavor_name)
             TypeAdapter(TTL | None).validate_python(ttl_seconds)
-            TypeAdapter(TemplateID | None).validate_python(template_id)
-            TypeAdapter(SelectionName | None).validate_python(template_name)
-            if (template_id is None) == (template_name is None):
-                raise ValueError("Select exactly one explicit template_id or template_name")
             try:
                 TypeAdapter(Environment | None).validate_python(environment_variables)
             except ValidationError:
@@ -251,15 +220,20 @@ def register(mcp: Any) -> None:
                 ) from None
             attachments = TypeAdapter(NetworkStorages | None).validate_python(network_storages)
             api = get_session().get_client().with_options(max_retries=0).sandbox.api
-            _require_live_selection(api, region, flavor_name, template_id, template_name)
+            _require_live_selection(api, region, flavor_name)
             result = api.create(
                 sandbox_name=sandbox_name,
                 region=region,
                 flavor_name=flavor_name,
                 ttl_seconds=ttl_seconds,
-                template_id=template_id,
-                template_name=template_name,
-                environment_variables=environment_variables,
+                environment_variables=(
+                    {
+                        key: b64encode(value.encode()).decode()
+                        for key, value in environment_variables.items()
+                    }
+                    if environment_variables is not None
+                    else None
+                ),
                 network_storages=(
                     [item.model_dump(exclude_none=True) for item in attachments]
                     if attachments is not None

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.9 — 2026-09-24
+
+- `create_sandbox` fixed to match the current Sandbox create API: the backend
+  no longer accepts template selection (`template_id`/`template_name` removed;
+  the runtime template is chosen server-side), and `environment_variables`
+  values are now base64-encoded on the wire as the backend requires. Creation
+  previously failed with `400 unknown field "templateName"` for every request.
+
 ## 1.0.8 — 2026-09-24
 
 - New `get_instance_task_status` tool: poll the task_id returned by

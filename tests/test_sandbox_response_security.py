@@ -29,7 +29,6 @@ CASES = [
             "region": "In-Bangalore-1",
             "flavor_name": "cpu-small",
             "ttl_seconds": 60,
-            "template_id": 17,
             "confirm": True,
         },
         {"id": {"secret": "opaque-warning-secret"}},
@@ -166,7 +165,7 @@ def test_failed_or_invalid_envelopes_use_safe_mcp_errors(wire, name, args, data,
         wire.call(name, args)
     assert "opaque-envelope-secret" not in str(error.value)
     assert "withheld" in str(error.value)
-    assert len(wire.requests) == (3 if name == "create_sandbox" else 1)
+    assert len(wire.requests) == (2 if name == "create_sandbox" else 1)
 
 
 def _call_with_secrets(wire, name, secrets):
@@ -177,7 +176,6 @@ def _call_with_secrets(wire, name, secrets):
             "region": "In-Bangalore-1",
             "flavor_name": "cpu-small",
             "ttl_seconds": 60,
-            "template_id": 17,
             "confirm": True,
             "environment_variables": environment,
         }

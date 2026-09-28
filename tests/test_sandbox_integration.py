@@ -121,7 +121,6 @@ async def test_create_protocol_supports_optional_ttl(monkeypatch, ttl_args, stat
                     "sandbox_name": "ttl-test",
                     "region": "In-Bangalore-1",
                     "flavor_name": "sandbox-nano",
-                    "template_id": 4,
                     "confirm": True,
                     **ttl_args,
                 },
@@ -136,7 +135,6 @@ async def test_create_protocol_supports_optional_ttl(monkeypatch, ttl_args, stat
         "sandboxName": "ttl-test",
         "region": "In-Bangalore-1",
         "flavorName": "sandbox-nano",
-        "templateId": 4,
     }
     if ttl_args.get("ttl_seconds") is not None:
         expected["ttlSeconds"] = ttl_args["ttl_seconds"]

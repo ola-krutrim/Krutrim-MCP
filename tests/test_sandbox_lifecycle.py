@@ -310,7 +310,6 @@ CREATE = {
     "region": REGION,
     "flavor_name": "cpu-small",
     "ttl_seconds": 60,
-    "template_id": 17,
     "confirm": True,
 }
 
@@ -724,7 +723,6 @@ def test_create_omits_unspecified_ttl_from_sdk_payload(harness, ttl_args):
         "sandboxName": "demo-1",
         "region": REGION,
         "flavorName": "cpu-small",
-        "templateId": 17,
     }
 
 
@@ -765,7 +763,6 @@ def test_captured_catalog_flavors_pass_active_preflight(harness, entry):
         "sandboxName": "demo-1",
         "region": REGION,
         "flavorName": name,
-        "templateId": 17,
     }
 
 
@@ -817,7 +814,6 @@ def test_matching_status_spellings_accept_active_without_mutating_catalog(harnes
 
 
 def prepare_create(harness):
-    harness.replies[("GET", f"{PREFIX}/template")] = (200, TEMPLATES)
     harness.replies[("GET", f"{PREFIX}/flavors")] = (200, FLAVORS)
     harness.replies[("POST", f"{PREFIX}/sandbox")] = (
         202,
@@ -829,25 +825,15 @@ def prepare_create(harness):
     )
 
 
-@pytest.mark.parametrize(
-    "selection,wire_selection",
-    [
-        ({"template_id": 17}, {"templateId": 17}),
-        ({"template_id": None, "template_name": "python"}, {"templateName": "python"}),
-    ],
-)
-def test_create_checks_live_catalogs_and_returns_async_acceptance(
-    harness, selection, wire_selection
-):
+def test_create_checks_live_catalogs_and_returns_async_acceptance(harness):
     assert harness.tool("create_sandbox") is not None
     prepare_create(harness)
-    result = harness.call("create_sandbox", **(CREATE | selection))
+    result = harness.call("create_sandbox", **CREATE)
     assert result.data["status"] == 202
     assert result.data["data"]["status"] == "deploying"
     assert result.data["data"]["id"] == "sb-1"
     assert sorted((r.method, r.url.path) for r in harness.requests) == sorted(
         [
-            ("GET", f"{PREFIX}/template"),
             ("GET", f"{PREFIX}/flavors"),
             ("POST", f"{PREFIX}/sandbox"),
         ]
@@ -858,7 +844,6 @@ def test_create_checks_live_catalogs_and_returns_async_acceptance(
         "region": REGION,
         "flavorName": "cpu-small",
         "ttlSeconds": 60,
-        **wire_selection,
     }
     flavor_request = next(r for r in harness.requests if r.url.path.endswith("/flavors"))
     assert dict(flavor_request.url.params) == {"region": REGION}
@@ -886,11 +871,6 @@ def test_create_guards_precede_catalog_client_access(harness, read_only, confirm
             for v in ["", "1demo", "Demo", "demo_1", "demo-", "a" * 64, " demo", "demo\n", 123]
         ],
         *[{"ttl_seconds": v} for v in [59, 604801, True, "60", 60.0]],
-        *[{"template_id": v} for v in [None, True, "17", 17.0, 0, -1]],
-        {"template_name": "python"},
-        {"template_id": None, "template_name": ""},
-        {"template_id": None, "template_name": " python"},
-        {"template_id": None, "template_name": 17},
         {"flavor_name": ""},
         {"flavor_name": "cpu-small "},
         {"flavor_name": 1},
@@ -914,64 +894,28 @@ def test_create_never_retries_timeout_or_attempts_cleanup(harness):
     with pytest.raises(ToolError):
         harness.call("create_sandbox", **CREATE)
     assert [r.method for r in harness.requests].count("POST") == 1
-    assert len(harness.requests) == 3
+    assert len(harness.requests) == 2
     assert not harness.client.is_closed()
 
 
 @pytest.mark.parametrize(
-    "path,catalog,selection",
+    "catalog",
     [
-        ("template", [], {}),
-        ("template", TEMPLATES * 2, {}),
-        ("template", [{"ID": 18, "template_name": "python"}], {}),
-        (
-            "template",
-            [{"ID": 17, "template_name": "python"}, {"ID": 18, "template_name": "python"}],
-            {"template_id": None, "template_name": "python"},
-        ),
-        (
-            "template",
-            [{"ID": 17, "template_name": "Python"}],
-            {"template_id": None, "template_name": "python"},
-        ),
-        (
-            "template",
-            [{"ID": 17, "template_name": "python", "supported_services": ["endpoint"]}],
-            {},
-        ),
-        ("template", [{"ID": "17", "template_name": "python"}], {}),
-        ("template", [{"ID": True, "template_name": "python"}], {}),
-        (
-            "template",
-            [{"template_name": "python"}],
-            {"template_id": None, "template_name": "python"},
-        ),
-        ("template", [{"ID": 17}], {}),
-        ("template", {"data": TEMPLATES}, {}),
-        ("template", None, {}),
-        ("flavors", {"status": 200, "data": []}, {}),
-        ("flavors", {"status": 200, "data": FLAVORS["data"] * 2}, {}),
-        (
-            "flavors",
-            {"status": 200, "data": [{"name": "CPU-small", "groupBy": {"flavorStatus": "active"}}]},
-            {},
-        ),
-        ("flavors", {"status": 200, "data": [{"groupBy": {"flavorStatus": "active"}}]}, {}),
-        (
-            "flavors",
-            {"status": 200, "data": [{"name": 1, "groupBy": {"flavorStatus": "active"}}]},
-            {},
-        ),
-        ("flavors", {"status": 200, "data": None}, {}),
-        ("flavors", {"status": 200, "data": "malformed"}, {}),
-        ("flavors", {"status": 500, "data": FLAVORS["data"]}, {}),
+        {"status": 200, "data": []},
+        {"status": 200, "data": FLAVORS["data"] * 2},
+        {"status": 200, "data": [{"name": "CPU-small", "groupBy": {"flavorStatus": "active"}}]},
+        {"status": 200, "data": [{"groupBy": {"flavorStatus": "active"}}]},
+        {"status": 200, "data": [{"name": 1, "groupBy": {"flavorStatus": "active"}}]},
+        {"status": 200, "data": None},
+        {"status": 200, "data": "malformed"},
+        {"status": 500, "data": FLAVORS["data"]},
     ],
 )
-def test_create_blocks_unselectable_or_malformed_live_catalogs(harness, path, catalog, selection):
+def test_create_blocks_unselectable_or_malformed_live_catalogs(harness, catalog):
     prepare_create(harness)
-    harness.replies[("GET", f"{PREFIX}/{path}")] = (200, catalog)
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (200, catalog)
     with pytest.raises(ToolError):
-        harness.call("create_sandbox", **(CREATE | selection))
+        harness.call("create_sandbox", **CREATE)
     assert harness.requests
     assert all(r.method == "GET" for r in harness.requests)
 
@@ -999,7 +943,7 @@ def test_create_optional_inputs_use_sdk_snake_case_to_wire_aliases(harness, atta
     )
     assert result.ok
     body = json.loads(harness.requests[-1].content)
-    assert body["environmentVariables"] == {"SECRET": "hidden", "EMPTY": ""}
+    assert body["environmentVariables"] == {"SECRET": "aGlkZGVu", "EMPTY": ""}
     assert body["networkStorages"] == [
         {
             "networkStorageId": item["network_storage_id"],
@@ -1163,7 +1107,6 @@ def test_published_schemas_expose_required_inputs_and_bounds(harness):
         ("create_sandbox", CREATE | {"confirm": 1}),
         ("create_sandbox", CREATE | {"ttl_seconds": "60"}),
         ("create_sandbox", CREATE | {"ttl_seconds": 60.0}),
-        ("create_sandbox", CREATE | {"template_id": True}),
         ("create_sandbox", CREATE | {"environment_variables": {"SECRET": 123}}),
         (
             "create_sandbox",
