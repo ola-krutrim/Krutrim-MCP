@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.9 — 2026-09-24
+## 1.0.9 — 2026-09-28
 
 - `create_sandbox` fixed to match the current Sandbox create API: the backend
   no longer accepts template selection (`template_id`/`template_name` removed;
