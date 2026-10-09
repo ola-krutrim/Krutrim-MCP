@@ -66,7 +66,7 @@ one.
 | Create a VM | `list_vpcs`, `list_subnets`, and `list_compute_flavors` |
 | Allocate a floating IP | `describe_vpc`, then `create_floating_ip` |
 | Create a KPod | `list_kpod_flavors` and `list_kpod_templates` |
-| Create a Sandbox | `list_sandbox_flavors` and `list_sandbox_templates` |
+| Create a Sandbox | `list_sandbox_flavors` (custom image: follow [BYOC](https://docs.cloud.olakrutrim.com/basics/core-infrastructure/sandbox/bring-your-own-container-byoc) first) |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
 | Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
 

@@ -679,7 +679,7 @@ wheels = [
 
 [[package]]
 name = "krutrim-client"
-version = "0.6.4"
+version = "0.8.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -689,14 +689,14 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/57/3b/a9c57da303946f4ca4a9b8b7824455336d1fd142e2fd511f416aaca960f4/krutrim_client-0.6.4.tar.gz", hash = "sha256:74802d2496eb750d83bb4a9fa31a61e575d459295d3e471d6eb5fc6f56515d60", size = 210443, upload-time = "2026-09-23T09:11:15.41Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/48/c8/234dfae0601c6c7168f2964210e9ec92e1f053aaa38552f856845f5cd6db/krutrim_client-0.8.4.tar.gz", hash = "sha256:6c511128a22209b9a965e30b93e70e9d03fa3bca7628e88f29462214f31cb259", size = 214036, upload-time = "2026-10-07T10:21:37.194Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/a8/4d4ca7e857c0abccaa0ace420923c5bd59b379cf6fcbf930753113be5a71/krutrim_client-0.6.4-py3-none-any.whl", hash = "sha256:7a9296322f1174fe79cac1e83098bb7cc08853dc3268b68a310283ca1fe47c8f", size = 243481, upload-time = "2026-09-23T09:11:14.012Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/6d/eca1039548ef17191e731b999e30cfebea8b5c38235383eb9bbe000cb7ab/krutrim_client-0.8.4-py3-none-any.whl", hash = "sha256:c862e0ee445b9e3fcc893a3f7f7b94ed3975e1f040a178fa19bb233df0cd2f68", size = 245426, upload-time = "2026-10-07T10:21:35.809Z" },
 ]
 
 [[package]]
 name = "krutrim-mcp-server"
-version = "1.0.9"
+version = "1.0.10"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -726,7 +726,7 @@ requires-dist = [
     { name = "cyclonedx-bom", marker = "extra == 'release'", specifier = ">=7.3,<8" },
     { name = "hatchling", marker = "extra == 'release'", specifier = ">=1.26,<1.32" },
     { name = "httpx", specifier = ">=0.28,<0.29" },
-    { name = "krutrim-client", specifier = ">=0.6.4,<0.7" },
+    { name = "krutrim-client", specifier = ">=0.8.4,<0.9" },
     { name = "mcp", specifier = ">=1.28.1,<2" },
     { name = "pip-audit", marker = "extra == 'release'", specifier = ">=2.10,<3" },
     { name = "pydantic", specifier = ">=2.12.0,<3" },

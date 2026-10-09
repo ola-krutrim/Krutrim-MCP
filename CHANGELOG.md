@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.10 — 2026-10-09
+
+- `create_sandbox` accepts an optional `image_uri` to run your own container
+  image (Bring Your Own Container), and optional `labels` (key/value tags).
+  Custom images must be public, `linux/amd64`, and bundle Krutrim's
+  `sandbox-agent`; see the
+  [BYOC guide](https://docs.cloud.olakrutrim.com/basics/core-infrastructure/sandbox/bring-your-own-container-byoc).
+- `list_sandboxes` can filter by `labels`.
+- Sandbox request validation errors (HTTP 400/422) now include the backend's
+  reason, e.g. an unknown or invalid field, instead of a generic failure.
+- `delete_sandbox` notes that deletion is asynchronous; a deleted sandbox may
+  briefly still appear in listings.
+- Updated to `krutrim-client` 0.8.4.
+
 ## 1.0.9 — 2026-09-28
 
 - `create_sandbox` fixed to match the current Sandbox create API: the backend

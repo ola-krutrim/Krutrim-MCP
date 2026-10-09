@@ -4,6 +4,7 @@ from base64 import b64encode
 from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
+import httpx
 from krutrim_client import APIError
 from krutrim_client.types.sandbox import FlavorListResponse, PodTemplate
 from pydantic import (
@@ -20,6 +21,7 @@ from pydantic import (
 
 from krutrim_mcp_server.client import get_session
 from krutrim_mcp_server.guards import ensure_confirmed, ensure_writable
+from krutrim_mcp_server.serialize import _redact_scalar
 from krutrim_mcp_server.tools import (
     CONFIRM_FIELD,
     REGION_FIELD,
@@ -28,7 +30,7 @@ from krutrim_mcp_server.tools import (
     run_tool,
     settings,
 )
-from krutrim_mcp_server.tools.sandbox._responses import safe_response
+from krutrim_mcp_server.tools.sandbox._responses import redact_secrets, safe_response
 
 SandboxID = Annotated[StrictStr, Field(min_length=1, pattern=r"^[A-Za-z0-9_:-][A-Za-z0-9_.:-]*$")]
 TTL = Annotated[StrictInt, Field(ge=60, le=604800)]
@@ -42,6 +44,18 @@ SelectionName = Annotated[
 Page = Annotated[StrictInt, Field(ge=1)]
 Limit = Annotated[StrictInt, Field(ge=1, le=100)]
 Status = Literal["deploying", "active", "deleting", "failed_deploy"]
+_TEMPLATE_PATH = "/omni/sandbox/v1/template"
+LabelKey = Annotated[StrictStr, Field(min_length=1, max_length=63, pattern=r"^[^=,]+$")]
+LabelValue = Annotated[StrictStr, Field(max_length=255, pattern=r"^[^,]*$")]
+Labels = Annotated[dict[LabelKey, LabelValue], Field(max_length=16, strict=True)]
+ImageURI = Annotated[
+    StrictStr,
+    Field(min_length=1, max_length=1024, pattern=r"^[^\s\x00-\x1f\x7f]+$"),
+]
+LABELS_DESCRIPTION = (
+    "Optional key/value labels (max 16; key 1-63 chars without '=' or ','; "
+    "value up to 255 chars without ',')."
+)
 
 
 class NetworkStorageAttachment(BaseModel):
@@ -125,13 +139,45 @@ def _require_live_selection(
         raise ValueError("Selected Sandbox flavor is not marked active; creation blocked")
 
 
-def _run_lifecycle_tool(fn: Callable[[], Any]) -> ToolSuccess:
+_SURFACED_4XX = frozenset({400, 422})
+_MAX_DETAIL = 200
+
+
+def _validation_detail(exc: APIError, secrets: tuple[str, ...]) -> str | None:
+    """Return the backend's request-validation ``error`` text for 400/422.
+
+    Payload-validation errors carry no resource state, so the ``error`` field
+    is surfaced (redacted and bounded) to make contract problems diagnosable.
+    Other statuses and other body fields keep their details withheld.
+    """
+    if getattr(exc, "status_code", None) not in _SURFACED_4XX:
+        return None
+    body = getattr(exc, "body", None)
+    if not isinstance(body, dict):
+        return None
+    message = body.get("error")
+    if not isinstance(message, str) or not message.strip():
+        return None
+    message = _redact_scalar(redact_secrets(message, secrets))
+    message = " ".join(message.split())
+    if len(message) > _MAX_DETAIL:
+        message = message[:_MAX_DETAIL] + "…"
+    return message
+
+
+def _run_lifecycle_tool(fn: Callable[[], Any], secrets: tuple[str, ...] = ()) -> ToolSuccess:
     def protected() -> Any:
         try:
             return safe_response(fn())
         except APIError as exc:
             status = getattr(exc, "status_code", None)
             detail = f"HTTP {status}" if status is not None else type(exc).__name__
+            backend = _validation_detail(exc, secrets)
+            if backend is not None:
+                raise ValueError(
+                    f"Sandbox request rejected ({detail}): {backend}. "
+                    "Fix the request before retrying."
+                ) from None
             raise ValueError(
                 f"Sandbox lifecycle request failed ({detail}); response details withheld. "
                 "Inspect Sandbox state before retrying a mutation."
@@ -148,7 +194,9 @@ def register(mcp: Any) -> None:
         def _run() -> Any:
             # Deployed catalogs may label JSON as text/plain; typed SDK parsing
             # then returns a string, bypassing structured credential redaction.
-            raw = get_session().get_client().sandbox.api.with_raw_response.list_templates()
+            # Fetch the raw response directly: SDK 0.8.x wraps list_templates'
+            # result, which breaks its with_raw_response variant.
+            raw = get_session().get_client().get(_TEMPLATE_PATH, cast_to=httpx.Response)
             try:
                 return TypeAdapter(list[PodTemplate]).validate_python(raw.json(), strict=True)
             except ValueError:
@@ -185,6 +233,21 @@ def register(mcp: Any) -> None:
         ] = None,
         environment_variables: Environment | None = None,
         network_storages: NetworkStorages | None = None,
+        image_uri: Annotated[
+            ImageURI | None,
+            Field(
+                description=(
+                    "Optional public linux/amd64 container image (BYOC) to run instead of "
+                    "the backend default. The image must bundle and start Krutrim's "
+                    "sandbox-agent (port 8871/8888, user 1000, workdir /app, <=4 GiB); "
+                    "stock images such as python:3.12-slim never become active. Before "
+                    "using it, walk the user through the BYOC steps: "
+                    "https://docs.cloud.olakrutrim.com/basics/core-infrastructure/sandbox/"
+                    "bring-your-own-container-byoc"
+                )
+            ),
+        ] = None,
+        labels: Annotated[Labels | None, Field(description=LABELS_DESCRIPTION)] = None,
     ) -> ToolSuccess:
         """Request a Sandbox using an exact live flavor.
 
@@ -192,7 +255,17 @@ def register(mcp: Any) -> None:
         flavorStatus) to be exactly active. Ignore separate availability labels;
         after explicit confirmation, attempt creation once. The create API decides
         provisioning acceptance, which does not guarantee readiness.
-        The runtime template is chosen by the backend; it is not selectable here.
+        Templates are not selectable; the backend runs its default image unless
+        image_uri names a custom container image (Bring Your Own Container).
+        When the user wants a custom image, instruct them through the BYOC steps
+        before creating: build for linux/amd64 with Krutrim's sandbox-agent as
+        the entrypoint (port 8871 or 8888, non-root user 1000, workdir /app,
+        compressed size up to 4 GiB), optionally smoke-test with
+        `curl http://127.0.0.1:8871/`, push to a public registry (docker.io,
+        ghcr.io, public ECR; private pull secrets are unsupported), then pass
+        the pushed URI. Stock images without the agent stay in deploying.
+        Guide: https://docs.cloud.olakrutrim.com/basics/core-infrastructure/sandbox/bring-your-own-container-byoc
+        labels attach key/value tags that list_sandboxes can filter on.
         environment_variables take plain-text values; they are base64-encoded
         on the wire as the backend requires.
         Expiry (TTL) specifies how long the sandbox remains active. The default is
@@ -219,6 +292,8 @@ def register(mcp: Any) -> None:
                     "environment_variables must be a string-to-string object"
                 ) from None
             attachments = TypeAdapter(NetworkStorages | None).validate_python(network_storages)
+            TypeAdapter(ImageURI | None).validate_python(image_uri)
+            TypeAdapter(Labels | None).validate_python(labels)
             api = get_session().get_client().with_options(max_retries=0).sandbox.api
             _require_live_selection(api, region, flavor_name)
             result = api.create(
@@ -226,23 +301,34 @@ def register(mcp: Any) -> None:
                 region=region,
                 flavor_name=flavor_name,
                 ttl_seconds=ttl_seconds,
-                environment_variables=(
-                    {
-                        key: b64encode(value.encode()).decode()
-                        for key, value in environment_variables.items()
-                    }
-                    if environment_variables is not None
-                    else None
-                ),
+                image_uri=image_uri,
+                labels=labels,
+                environment_variables=encoded_env,
                 network_storages=(
                     [item.model_dump(exclude_none=True) for item in attachments]
                     if attachments is not None
                     else None
                 ),
             )
-            return safe_response(result, tuple((environment_variables or {}).values()))
+            return safe_response(result, env_secrets)
 
-        return _run_lifecycle_tool(_run)
+        plain_env = (
+            environment_variables
+            if isinstance(environment_variables, dict)
+            and all(isinstance(v, str) for v in environment_variables.values())
+            else {}
+        )
+        encoded_env = (
+            {key: b64encode(value.encode()).decode() for key, value in plain_env.items()}
+            if environment_variables is not None
+            else None
+        )
+        env_secrets = tuple(
+            secret
+            for value in plain_env.values()
+            for secret in (value, b64encode(value.encode()).decode())
+        )
+        return _run_lifecycle_tool(_run, env_secrets)
 
     @mcp.tool()
     def set_sandbox_ttl(
@@ -280,6 +366,8 @@ def register(mcp: Any) -> None:
         """Request deletion of the exact approved Sandbox.
 
         Acceptance does not mean deletion completed; inspect progress separately.
+        Deletion is asynchronous: the sandbox can still appear in list_sandboxes
+        briefly afterwards. Re-check later rather than retrying the delete.
         """
 
         def _run() -> Any:
@@ -366,8 +454,15 @@ def register(mcp: Any) -> None:
         name: StrictStr | None = None,
         page: Page = 1,
         limit: Limit = 20,
+        labels: Annotated[
+            Labels | None,
+            Field(description="Optional label filter; only sandboxes matching every pair."),
+        ] = None,
     ) -> ToolSuccess:
-        """List one page of Sandboxes in an explicitly selected region, preserving pagination."""
+        """List one page of Sandboxes in an explicitly selected region, preserving pagination.
+
+        Optionally filter by name, status, or labels set at creation.
+        """
 
         def _run() -> Any:
             TypeAdapter(Region).validate_python(region)
@@ -375,6 +470,7 @@ def register(mcp: Any) -> None:
             TypeAdapter(StrictStr | None).validate_python(name)
             TypeAdapter(Page).validate_python(page)
             TypeAdapter(Limit).validate_python(limit)
+            TypeAdapter(Labels | None).validate_python(labels)
             return (
                 get_session()
                 .get_client()
@@ -382,6 +478,7 @@ def register(mcp: Any) -> None:
                     region=region,
                     status=status,
                     name=name,
+                    labels=labels,
                     page=page,
                     limit=limit,
                 )
