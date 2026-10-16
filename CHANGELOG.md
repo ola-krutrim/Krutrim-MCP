@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.11 — 2026-10-16
+
+- `create_instance` accepts optional `tags` (a list of strings or key/value objects) to
+  attach to the VM at creation.
+- Updated `mcp` to 1.30.0 (security fix).
+
 ## 1.0.10 — 2026-10-09
 
 - `create_sandbox` accepts an optional `image_uri` to run your own container

@@ -32,6 +32,23 @@ from krutrim_mcp_server.tools.networking.subnets import (
 
 PositiveSize = Annotated[int, Field(ge=1)]
 
+_MAX_TAGS = 50
+_MAX_TAG_TEXT = 256
+InstanceTag = Annotated[str, Field(min_length=1, max_length=_MAX_TAG_TEXT)] | dict[
+    Annotated[str, Field(min_length=1, max_length=_MAX_TAG_TEXT)],
+    Annotated[str, Field(max_length=_MAX_TAG_TEXT)],
+]
+InstanceTags = Annotated[
+    list[InstanceTag],
+    Field(
+        max_length=_MAX_TAGS,
+        description=(
+            "Optional tags to attach to the VM at creation, as a list of strings "
+            'or {"key": ..., "value": ...} objects. Omit for none.'
+        ),
+    ),
+]
+
 
 def _with_parsed_ip_addresses(result: Any) -> Any:
     """Decode the ip_addresses JSON-string field into a structure.
@@ -307,9 +324,11 @@ def register(mcp: Any) -> None:
         instance_flavor_type: InstanceFlavorType = "CPU",
         region: Region = REGION_FIELD,
         confirm: bool = CONFIRM_FIELD,
+        tags: Optional[InstanceTags] = None,
     ) -> str:
         """
         Create a VM with an explicitly selected regional CPU or GPU flavor.
+        Optional tags are attached to the VM at creation.
 
         Call list_compute_flavors for CPU or list_gpu_compute_flavors for GPU
         in the selected region and use the user's exact choice; no flavor default
@@ -350,6 +369,8 @@ def register(mcp: Any) -> None:
                 "count": 1,
                 "region": x_region,
             }
+            if tags:
+                kwargs["tags"] = tags
 
             if existing_volume_ids is not None:
                 conflicting_fields = [
