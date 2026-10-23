@@ -183,3 +183,118 @@ def test_custom_image_guidance_points_agents_to_byoc_steps():
     assert BYOC_URL in tool.description
     assert BYOC_URL in server.instructions
     assert "list_sandbox_templates; require explicit flavor and template" not in server.instructions
+
+
+def _flavor_ok(harness):
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (
+        200,
+        {
+            "status": 200,
+            "data": [{"id": "f1", "name": "cpu-small", "groupBy": {"flavorStatus": "active"}}],
+        },
+    )
+    harness.replies[("PUT", f"{PREFIX}/sandbox/sb-1/flavor")] = (
+        200,
+        {"status": 200, "data": {"id": "sb-1", "flavorName": "cpu-small", "cpuMilli": 500}},
+    )
+
+
+def test_set_flavor_puts_flavor_name_after_live_catalog_check(harness):
+    _flavor_ok(harness)
+    result = harness.call(
+        "set_sandbox_flavor",
+        sandbox_id="sb-1",
+        flavor_name="cpu-small",
+        region=REGION,
+        confirm=True,
+    )
+    assert result.data["status"] == 200
+    puts = [r for r in harness.requests if r.method == "PUT"]
+    assert len(puts) == 1
+    assert json.loads(puts[0].content) == {"flavorName": "cpu-small"}
+    assert [r.method for r in harness.requests] == ["GET", "PUT"]
+
+
+def test_set_ttl_uses_put(harness):
+    harness.replies[("PUT", f"{PREFIX}/sandbox/sb-1/ttl")] = (200, {"status": 200, "data": {}})
+    harness.call("set_sandbox_ttl", sandbox_id="sb-1", ttl_seconds=900, confirm=True)
+    (request,) = harness.requests
+    assert request.method == "PUT"
+    assert json.loads(request.content)["ttlSeconds"] == 900
+
+
+@pytest.mark.parametrize("confirm", [False, None, "yes", 1])
+def test_set_flavor_requires_strict_confirmation(harness, confirm):
+    with pytest.raises(ToolError):
+        harness.call(
+            "set_sandbox_flavor",
+            sandbox_id="sb-1",
+            flavor_name="cpu-small",
+            region=REGION,
+            confirm=confirm,
+        )
+    assert harness.requests == []
+
+
+@pytest.mark.parametrize("sandbox_id", ["", "../x", "a b", "a/b"])
+def test_set_flavor_rejects_unsafe_id_before_any_request(harness, sandbox_id):
+    with pytest.raises(ToolError):
+        harness.call(
+            "set_sandbox_flavor",
+            sandbox_id=sandbox_id,
+            flavor_name="cpu-small",
+            region=REGION,
+            confirm=True,
+        )
+    assert harness.requests == []
+
+
+@pytest.mark.parametrize(
+    "catalog",
+    [
+        [],
+        [{"id": "f1", "name": "cpu-small", "groupBy": {"flavorStatus": "inactive"}}],
+        [{"id": "f1", "name": "other", "groupBy": {"flavorStatus": "active"}}],
+    ],
+)
+def test_set_flavor_blocked_unless_flavor_is_active_in_live_catalog(harness, catalog):
+    harness.replies[("GET", f"{PREFIX}/flavors")] = (200, {"status": 200, "data": catalog})
+    with pytest.raises(ToolError):
+        harness.call(
+            "set_sandbox_flavor",
+            sandbox_id="sb-1",
+            flavor_name="cpu-small",
+            region=REGION,
+            confirm=True,
+        )
+    assert all(r.method == "GET" for r in harness.requests)
+
+
+def test_set_flavor_backend_rejection_reason_is_surfaced_for_400(harness):
+    _flavor_ok(harness)
+    harness.replies[("PUT", f"{PREFIX}/sandbox/sb-1/flavor")] = (
+        400,
+        {"error": "flavors differing in GPU count are not supported"},
+    )
+    with pytest.raises(ToolError) as error:
+        harness.call(
+            "set_sandbox_flavor",
+            sandbox_id="sb-1",
+            flavor_name="cpu-small",
+            region=REGION,
+            confirm=True,
+        )
+    assert "GPU" in str(error.value)
+
+
+@pytest.mark.parametrize("name", ["a" * 29, "a" * 63])
+def test_sandbox_name_over_28_chars_rejected_before_any_request(harness, name):
+    with pytest.raises(ToolError):
+        harness.call("create_sandbox", **{**CREATE, "sandbox_name": name})
+    assert harness.requests == []
+
+
+def test_sandbox_name_of_28_chars_is_accepted(harness):
+    prepare_create(harness)
+    harness.call("create_sandbox", **{**CREATE, "sandbox_name": "a" * 28})
+    assert _post(harness)["sandboxName"] == "a" * 28

@@ -114,11 +114,11 @@ filecache = [
 
 [[package]]
 name = "certifi"
-version = "2026.7.22"
+version = "2026.10.19"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a3/c2/24167ea9858356b47a87a50d39908bfdb72ceeefe0041586e704e5376b3a/certifi-2026.7.22.tar.gz", hash = "sha256:741e2c3b351ddf169a738da9f2c048608ff7f2c5cc02f1ebc6b118bb090d5d55", size = 138112, upload-time = "2026-07-22T03:35:12.644Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a6/bd/1436c50cc46699de0230fbaacc1d1de7bfec413176099949e9d5112e88f2/certifi-2026.10.19.tar.gz", hash = "sha256:035c1e85572b141bf1c3a3eff0e33a8eb74917522f2559075ff8d2fea780a1ae", size = 137598, upload-time = "2026-10-20T02:24:16.604Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/a7/71ac2cff56fec219ed242bb11b8efb69fcc4bec75db06fb7bfe35de520e6/certifi-2026.7.22-py3-none-any.whl", hash = "sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775", size = 136983, upload-time = "2026-07-22T03:35:11.276Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/51/29046e48f693c54e5b7412216d447a1d8362c9653148d98c02cdf65fa733/certifi-2026.10.19-py3-none-any.whl", hash = "sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b", size = 136464, upload-time = "2026-10-20T02:24:15.072Z" },
 ]
 
 [[package]]
@@ -679,7 +679,7 @@ wheels = [
 
 [[package]]
 name = "krutrim-client"
-version = "0.8.4"
+version = "0.8.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -689,14 +689,14 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/48/c8/234dfae0601c6c7168f2964210e9ec92e1f053aaa38552f856845f5cd6db/krutrim_client-0.8.4.tar.gz", hash = "sha256:6c511128a22209b9a965e30b93e70e9d03fa3bca7628e88f29462214f31cb259", size = 214036, upload-time = "2026-10-07T10:21:37.194Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/df/cfd46b7e45f067efb706462676b4208cd3c94a26fa39293be7ac491c2f03/krutrim_client-0.8.7.tar.gz", hash = "sha256:abdeb541b9bb1d1fc439d95e74d6c89f8d6ad1109aa896b280b68415908739d0", size = 237414, upload-time = "2026-10-22T11:43:23.186Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a4/6d/eca1039548ef17191e731b999e30cfebea8b5c38235383eb9bbe000cb7ab/krutrim_client-0.8.4-py3-none-any.whl", hash = "sha256:c862e0ee445b9e3fcc893a3f7f7b94ed3975e1f040a178fa19bb233df0cd2f68", size = 245426, upload-time = "2026-10-07T10:21:35.809Z" },
+    { url = "https://files.pythonhosted.org/packages/40/ae/3bfb198c23e5dd14bf887a168df99d38e4fafc60a1999c54c859c9abf697/krutrim_client-0.8.7-py3-none-any.whl", hash = "sha256:04e73f6ea044c16eda6ea7f731ce3f23ddb0c464614fdd6c2cbc7af1e2bd8cd8", size = 249345, upload-time = "2026-10-22T11:43:21.636Z" },
 ]
 
 [[package]]
 name = "krutrim-mcp-server"
-version = "1.0.11"
+version = "1.0.12"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -726,7 +726,7 @@ requires-dist = [
     { name = "cyclonedx-bom", marker = "extra == 'release'", specifier = ">=7.3,<8" },
     { name = "hatchling", marker = "extra == 'release'", specifier = ">=1.26,<1.32" },
     { name = "httpx", specifier = ">=0.28,<0.29" },
-    { name = "krutrim-client", specifier = ">=0.8.4,<0.9" },
+    { name = "krutrim-client", specifier = ">=0.8.7,<0.9" },
     { name = "mcp", specifier = ">=1.28.1,<2" },
     { name = "pip-audit", marker = "extra == 'release'", specifier = ">=2.10,<3" },
     { name = "pydantic", specifier = ">=2.12.0,<3" },

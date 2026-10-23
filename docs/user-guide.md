@@ -85,6 +85,10 @@ leave `ttlSeconds` out of the request and let the backend apply its one-hour
 default. To choose a different duration, supply an integer number of seconds.
 `set_sandbox_ttl` requires an explicit value within the same supported range.
 
+`set_sandbox_flavor` resizes a running Sandbox to another active flavor without a
+restart (CPU and memory only; processes and files are kept, and GPU changes are
+rejected). Choose the flavor from `list_sandbox_flavors`.
+
 IAM operations require full IAM KRNs. Use the KRN returned by a list operation;
 do not use a UUID, a display name, or a partial identifier.
 

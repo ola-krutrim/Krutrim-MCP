@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.12 — 2026-10-23
+
+- New `set_sandbox_flavor` tool: resize a running Sandbox to another active flavor
+  without restarting it (CPU and memory only; GPU changes are rejected).
+- Fixed `set_sandbox_ttl` failing with HTTP 404 against the current Sandbox API.
+- `create_sandbox` rejects `sandbox_name` longer than 28 characters up front,
+  matching the service limit.
+- Updated to `krutrim-client` 0.8.7.
+
 ## 1.0.11 — 2026-10-16
 
 - `create_instance` accepts optional `tags` (a list of strings or key/value objects) to

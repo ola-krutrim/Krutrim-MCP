@@ -124,6 +124,7 @@ ADDITIVE_TOOLS = {
 }
 DESTRUCTIVE_TOOLS = {
     "set_sandbox_ttl",
+    "set_sandbox_flavor",
     "delete_sandbox",
     "run_sandbox_command",
     "open_sandbox_port",

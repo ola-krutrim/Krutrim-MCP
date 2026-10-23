@@ -35,7 +35,7 @@ from krutrim_mcp_server.tools.sandbox._responses import redact_secrets, safe_res
 SandboxID = Annotated[StrictStr, Field(min_length=1, pattern=r"^[A-Za-z0-9_:-][A-Za-z0-9_.:-]*$")]
 TTL = Annotated[StrictInt, Field(ge=60, le=604800)]
 SandboxName = Annotated[
-    StrictStr, Field(min_length=1, max_length=63, pattern=r"^[a-z]([-a-z0-9]*[a-z0-9])?$")
+    StrictStr, Field(min_length=1, max_length=28, pattern=r"^[a-z]([-a-z0-9]*[a-z0-9])?$")
 ]
 SelectionName = Annotated[
     StrictStr,
@@ -128,7 +128,7 @@ def _require_live_selection(
     try:
         flavors = _Flavors.model_validate(api.with_raw_response.list_flavors(region=region).json())
     except ValidationError:
-        raise ValueError("Malformed live Sandbox flavor catalog; creation blocked") from None
+        raise ValueError("Malformed live Sandbox flavor catalog; request blocked") from None
     if flavors.status is not None and flavors.status != 200:
         raise ValueError("Live Sandbox flavor catalog did not report success")
     selected = [item for item in flavors.data if item.name == flavor_name]
@@ -136,7 +136,7 @@ def _require_live_selection(
         raise ValueError("Sandbox flavor selection is missing or ambiguous in the live catalog")
     group = selected[0].group_by
     if group is None or group.flavor_status != "active":
-        raise ValueError("Selected Sandbox flavor is not marked active; creation blocked")
+        raise ValueError("Selected Sandbox flavor is not marked active; request blocked")
 
 
 _SURFACED_4XX = frozenset({400, 422})
@@ -355,6 +355,34 @@ def register(mcp: Any) -> None:
                     ttl_seconds,
                 )
             )
+
+        return _run_lifecycle_tool(_run)
+
+    @mcp.tool()
+    def set_sandbox_flavor(
+        sandbox_id: SandboxID,
+        flavor_name: SelectionName,
+        region: Region,
+        confirm: Annotated[StrictBool, CONFIRM_FIELD],
+    ) -> ToolSuccess:
+        """Resize a running Sandbox to another live flavor without restarting it.
+
+        Processes and filesystem state survive. Only CPU and memory change: the
+        local disk is kept, and flavors that differ in GPU are rejected. The
+        Sandbox must be active. Billing continues on a new revision at the new
+        flavor's rate. Call list_sandbox_flavors first and use an exact active
+        flavor name; explicit approval is required and nothing is polled.
+        """
+
+        def _run() -> Any:
+            ensure_writable(settings(), "set_sandbox_flavor")
+            ensure_confirmed(confirm, "set_sandbox_flavor", sandbox_id)
+            TypeAdapter(SandboxID).validate_python(sandbox_id)
+            TypeAdapter(Region).validate_python(region)
+            TypeAdapter(SelectionName).validate_python(flavor_name)
+            api = get_session().get_client().with_options(max_retries=0).sandbox.api
+            _require_live_selection(api, region, flavor_name)
+            return safe_response(api.set_flavor(sandbox_id, flavor_name))
 
         return _run_lifecycle_tool(_run)
 

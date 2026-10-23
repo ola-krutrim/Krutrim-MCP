@@ -233,7 +233,7 @@ def test_describe_rejects_unsafe_id_before_client(harness, sandbox_id):
 
 
 ID_MUTATIONS = [
-    ("set_sandbox_ttl", "POST", "/ttl", {"ttl_seconds": 60}),
+    ("set_sandbox_ttl", "PUT", "/ttl", {"ttl_seconds": 60}),
     ("delete_sandbox", "DELETE", "", {}),
 ]
 
@@ -868,7 +868,7 @@ def test_create_guards_precede_catalog_client_access(harness, read_only, confirm
     [
         *[
             {"sandbox_name": v}
-            for v in ["", "1demo", "Demo", "demo_1", "demo-", "a" * 64, " demo", "demo\n", 123]
+            for v in ["", "1demo", "Demo", "demo_1", "demo-", "a" * 29, " demo", "demo\n", 123]
         ],
         *[{"ttl_seconds": v} for v in [59, 604801, True, "60", 60.0]],
         {"flavor_name": ""},
@@ -1045,7 +1045,7 @@ def test_create_redacts_environment_echoed_by_backend(harness):
     assert "***REDACTED***" in result.model_dump_json()
 
 
-def test_lifecycle_catalog_is_exactly_seven_tools(harness):
+def test_lifecycle_catalog_is_exactly_eight_tools(harness):
     expected = {
         "list_sandbox_templates",
         "list_sandbox_flavors",
@@ -1053,6 +1053,7 @@ def test_lifecycle_catalog_is_exactly_seven_tools(harness):
         "describe_sandbox",
         "create_sandbox",
         "set_sandbox_ttl",
+        "set_sandbox_flavor",
         "delete_sandbox",
     }
     module = importlib.import_module(MODULE)
@@ -1065,7 +1066,7 @@ def test_published_schemas_expose_required_inputs_and_bounds(harness):
     create = harness.tool("create_sandbox").parameters
     assert {"sandbox_name", "region", "flavor_name", "confirm"} <= set(create["required"])
     assert "ttl_seconds" not in create["required"]
-    assert create["properties"]["sandbox_name"]["maxLength"] == 63
+    assert create["properties"]["sandbox_name"]["maxLength"] == 28
     ttl = create["properties"]["ttl_seconds"]
     assert ttl["default"] is None
     assert "Optional" in ttl["description"]
@@ -1133,12 +1134,12 @@ def test_creation_supports_upper_bounds_and_typed_network_attachment(harness):
     )
     harness.call(
         "create_sandbox",
-        **(CREATE | {"sandbox_name": "a" * 63, "ttl_seconds": 604800}),
+        **(CREATE | {"sandbox_name": "a" * 28, "ttl_seconds": 604800}),
         network_storages=[attachment],
     )
     body = json.loads(harness.requests[-1].content)
     assert body["ttlSeconds"] == 604800
-    assert body["sandboxName"] == "a" * 63
+    assert body["sandboxName"] == "a" * 28
     assert body["networkStorages"] == [
         {"networkStorageId": "disk", "networkStorageMountPath": "/mnt"}
     ]
