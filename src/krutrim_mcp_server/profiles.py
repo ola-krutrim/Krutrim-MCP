@@ -17,6 +17,17 @@ from krutrim_mcp_server.tools import ToolSuccess
 
 _META_TOOLS = {"krutrim_ping", "list_regions"}
 READ_ONLY_TOOLS = {
+    "list_load_balancers",
+    "describe_load_balancer",
+    "get_load_balancer_payload",
+    "get_load_balancer_task_status",
+    "list_target_groups",
+    "list_target_group_names",
+    "get_certificate_tag_value",
+    "get_detailed_target_groups",
+    "list_certificates",
+    "describe_certificate",
+    "get_expiring_certificates",
     "list_sandbox_templates",
     "list_sandbox_flavors",
     "list_sandboxes",
@@ -83,6 +94,11 @@ READ_ONLY_TOOLS = {
     "search_vpcs",
 }
 ADDITIVE_TOOLS = {
+    "upload_image_s3",
+    "create_load_balancer",
+    "create_target_group",
+    "import_certificate",
+    "add_certificate_tags",
     "create_sandbox",
     "make_sandbox_directory",
     "add_dns_zone_vpc",
@@ -123,6 +139,14 @@ ADDITIVE_TOOLS = {
     "upscale_asg",
 }
 DESTRUCTIVE_TOOLS = {
+    "update_sandbox_network_policy",
+    "patch_sandbox_network_policy",
+    "update_load_balancer",
+    "delete_load_balancer",
+    "update_target_group",
+    "delete_target_group",
+    "update_certificate",
+    "delete_certificate",
     "set_sandbox_ttl",
     "set_sandbox_flavor",
     "delete_sandbox",
@@ -185,10 +209,7 @@ DESTRUCTIVE_TOOLS = {
     "upgrade_kks_cluster",
     "upgrade_kks_node_group",
 }
-UNAVAILABLE_TOOLS = {
-    "create_asg",
-    "create_launch_template",
-}
+UNAVAILABLE_TOOLS: set[str] = set()
 
 
 def is_read_only_tool(name: str) -> bool:

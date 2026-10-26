@@ -69,6 +69,9 @@ one.
 | Create a Sandbox | `list_sandbox_flavors` (custom image: follow [BYOC](https://docs.cloud.olakrutrim.com/basics/core-infrastructure/sandbox/bring-your-own-container-byoc) first) |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
 | Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
+| Manage load balancers | `list_load_balancers`, `list_target_groups`, and `get_load_balancer_payload` |
+| Manage certificates | `list_certificates` and `get_expiring_certificates` |
+| Import a VM image | `upload_image_s3` (HTTP(S) or pre-signed S3 URL) |
 
 **Sandbox availability:** `list_sandbox_flavors` shows backend-reported availability
 and flavor status when present, alongside names, resources, and pricing. These
@@ -83,11 +86,23 @@ creation.
 For `create_sandbox`, `ttl_seconds` is optional. Omit it (or pass `null`) to
 leave `ttlSeconds` out of the request and let the backend apply its one-hour
 default. To choose a different duration, supply an integer number of seconds.
-`set_sandbox_ttl` requires an explicit value within the same supported range.
+`set_sandbox_ttl` requires an explicit value within the same supported range, or `0`
+to disable expiry. A Sandbox with no expiry keeps billing until you delete it.
+
+`update_sandbox_network_policy` replaces a Sandbox's whole network policy (omitted
+allowlists are cleared). `patch_sandbox_network_policy` changes only the fields you
+pass and can add or remove outbound domains. Both need an active Sandbox, and the
+response reports `enforcement_status`.
 
 `set_sandbox_flavor` resizes a running Sandbox to another active flavor without a
 restart (CPU and memory only; processes and files are kept, and GPU changes are
 rejected). Choose the flavor from `list_sandbox_flavors`.
+
+Load balancer create and update calls, and `get_detailed_target_groups`, derive the
+account and customer headers from a full, unmasked VPC or load balancer KRN. KRNs from
+list output redact the account segment as `:***:`; replace it with your account UUID
+first. `import_certificate` and `update_certificate` read a local .pem, .crt, .cer, .cert,
+.pfx or .p12 file of at most 1 MiB and upload its contents.
 
 IAM operations require full IAM KRNs. Use the KRN returned by a list operation;
 do not use a UUID, a display name, or a partial identifier.

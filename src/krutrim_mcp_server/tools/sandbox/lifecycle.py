@@ -8,6 +8,7 @@ import httpx
 from krutrim_client import APIError
 from krutrim_client.types.sandbox import FlavorListResponse, PodTemplate
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -34,6 +35,19 @@ from krutrim_mcp_server.tools.sandbox._responses import redact_secrets, safe_res
 
 SandboxID = Annotated[StrictStr, Field(min_length=1, pattern=r"^[A-Za-z0-9_:-][A-Za-z0-9_.:-]*$")]
 TTL = Annotated[StrictInt, Field(ge=60, le=604800)]
+
+
+def _zero_or_at_least_a_minute(value: int) -> int:
+    if 0 < value < 60:
+        raise ValueError("ttl_seconds must be 0 (never expire) or between 60 and 604800")
+    return value
+
+
+SetTTL = Annotated[
+    StrictInt,
+    Field(ge=0, le=604800),
+    AfterValidator(_zero_or_at_least_a_minute),
+]
 SandboxName = Annotated[
     StrictStr, Field(min_length=1, max_length=28, pattern=r"^[a-z]([-a-z0-9]*[a-z0-9])?$")
 ]
@@ -163,6 +177,47 @@ def _validation_detail(exc: APIError, secrets: tuple[str, ...]) -> str | None:
     if len(message) > _MAX_DETAIL:
         message = message[:_MAX_DETAIL] + "…"
     return message
+
+
+def _join_entries(values: list[str] | None, field: str, *, allow_empty: bool = False) -> str | None:
+    """Validate allowlist entries and join them into the API's comma-separated form."""
+    if values is None:
+        return None
+    entries = [str(entry).strip() for entry in values]
+    if not entries:
+        if allow_empty:
+            return ""
+        raise ValueError(f"{field} must contain at least one entry")
+    for entry in entries:
+        if not entry:
+            raise ValueError(f"{field} entries must be non-empty strings")
+        if "," in entry:
+            raise ValueError(f"{field} entries must not contain commas; pass separate entries")
+    return ",".join(entries)
+
+
+def _network_policy_fields(
+    *,
+    allow_internet_access: bool | None,
+    outbound_cidr_allowlist: list[str] | None,
+    outbound_domain_allowlist: list[str] | None,
+    inbound_cidr_allowlist: list[str] | None,
+    allow_empty: bool,
+) -> dict[str, Any]:
+    fields: dict[str, Any] = {
+        "outbound_cidr_allowlist": _join_entries(
+            outbound_cidr_allowlist, "outbound_cidr_allowlist", allow_empty=allow_empty
+        ),
+        "outbound_domain_allowlist": _join_entries(
+            outbound_domain_allowlist, "outbound_domain_allowlist", allow_empty=allow_empty
+        ),
+        "inbound_cidr_allowlist": _join_entries(
+            inbound_cidr_allowlist, "inbound_cidr_allowlist", allow_empty=allow_empty
+        ),
+    }
+    if allow_internet_access is not None:
+        fields["allow_internet_access"] = allow_internet_access
+    return {key: value for key, value in fields.items() if value is not None}
 
 
 def _run_lifecycle_tool(fn: Callable[[], Any], secrets: tuple[str, ...] = ()) -> ToolSuccess:
@@ -333,19 +388,21 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def set_sandbox_ttl(
         sandbox_id: SandboxID,
-        ttl_seconds: TTL,
+        ttl_seconds: SetTTL,
         confirm: Annotated[StrictBool, CONFIRM_FIELD],
     ) -> ToolSuccess:
         """Set Sandbox expiry: 1 minute to 7 days (60–604800 seconds).
 
-        An explicit duration and approval are required; never poll.
+        Pass 0 to disable expiry: the Sandbox never expires on its own and keeps
+        billing until it is deleted, so use 0 only with explicit approval. An
+        explicit duration and approval are required; never poll.
         """
 
         def _run() -> Any:
             ensure_writable(settings(), "set_sandbox_ttl")
             ensure_confirmed(confirm, "set_sandbox_ttl", sandbox_id)
             TypeAdapter(SandboxID).validate_python(sandbox_id)
-            TypeAdapter(TTL).validate_python(ttl_seconds)
+            TypeAdapter(SetTTL).validate_python(ttl_seconds)
             return (
                 get_session()
                 .get_client()
@@ -383,6 +440,102 @@ def register(mcp: Any) -> None:
             api = get_session().get_client().with_options(max_retries=0).sandbox.api
             _require_live_selection(api, region, flavor_name)
             return safe_response(api.set_flavor(sandbox_id, flavor_name))
+
+        return _run_lifecycle_tool(_run)
+
+    @mcp.tool()
+    def update_sandbox_network_policy(
+        sandbox_id: SandboxID,
+        confirm: Annotated[StrictBool, CONFIRM_FIELD],
+        allow_internet_access: StrictBool | None = None,
+        outbound_cidr_allowlist: list[StrictStr] | None = None,
+        outbound_domain_allowlist: list[StrictStr] | None = None,
+        inbound_cidr_allowlist: list[StrictStr] | None = None,
+    ) -> ToolSuccess:
+        """Replace the whole network policy of an active Sandbox.
+
+        This is a full replacement: any allowlist you omit is cleared and an omitted
+        allow_internet_access resets to true. To change one part and keep the rest, use
+        patch_sandbox_network_policy. allow_internet_access=false blocks all traffic and
+        cannot be combined with allowlists. Allowlist entries are CIDRs or domains,
+        without commas. Provide at least one field; the Sandbox must be active.
+        Check enforcement_status in the response; approval is required.
+        """
+
+        def _run() -> Any:
+            ensure_writable(settings(), "update_sandbox_network_policy")
+            ensure_confirmed(confirm, "update_sandbox_network_policy", sandbox_id)
+            TypeAdapter(SandboxID).validate_python(sandbox_id)
+            fields = _network_policy_fields(
+                allow_internet_access=allow_internet_access,
+                outbound_cidr_allowlist=outbound_cidr_allowlist,
+                outbound_domain_allowlist=outbound_domain_allowlist,
+                inbound_cidr_allowlist=inbound_cidr_allowlist,
+                allow_empty=False,
+            )
+            if not fields:
+                raise ValueError(
+                    "provide at least one of allow_internet_access, outbound_cidr_allowlist, "
+                    "outbound_domain_allowlist or inbound_cidr_allowlist"
+                )
+            if allow_internet_access is False and set(fields) != {"allow_internet_access"}:
+                raise ValueError(
+                    "allow_internet_access=false blocks all traffic and cannot be combined "
+                    "with allowlists"
+                )
+            api = get_session().get_client().with_options(max_retries=0).sandbox.api
+            return api.update_network_policy(sandbox_id, **fields)
+
+        return _run_lifecycle_tool(_run)
+
+    @mcp.tool()
+    def patch_sandbox_network_policy(
+        sandbox_id: SandboxID,
+        confirm: Annotated[StrictBool, CONFIRM_FIELD],
+        allow_internet_access: StrictBool | None = None,
+        outbound_cidr_allowlist: list[StrictStr] | None = None,
+        outbound_domain_allowlist: list[StrictStr] | None = None,
+        inbound_cidr_allowlist: list[StrictStr] | None = None,
+        add_outbound_domains: list[StrictStr] | None = None,
+        remove_outbound_domains: list[StrictStr] | None = None,
+    ) -> ToolSuccess:
+        """Partially update the network policy of an active Sandbox.
+
+        Only the fields you pass change; everything else is preserved. A list replaces
+        that allowlist, and an empty list clears it. add_outbound_domains and
+        remove_outbound_domains edit the outbound domain allowlist incrementally.
+        allow_internet_access=false blocks all traffic and cannot be combined with
+        allowlists. Provide at least one field; check enforcement_status in the
+        response; approval is required.
+        """
+
+        def _run() -> Any:
+            ensure_writable(settings(), "patch_sandbox_network_policy")
+            ensure_confirmed(confirm, "patch_sandbox_network_policy", sandbox_id)
+            TypeAdapter(SandboxID).validate_python(sandbox_id)
+            fields = _network_policy_fields(
+                allow_internet_access=allow_internet_access,
+                outbound_cidr_allowlist=outbound_cidr_allowlist,
+                outbound_domain_allowlist=outbound_domain_allowlist,
+                inbound_cidr_allowlist=inbound_cidr_allowlist,
+                allow_empty=True,
+            )
+            for name, values in (
+                ("add_outbound_domains", add_outbound_domains),
+                ("remove_outbound_domains", remove_outbound_domains),
+            ):
+                if values is not None:
+                    _join_entries(values, name)
+                    fields[name] = [entry.strip() for entry in values]
+            if not fields:
+                raise ValueError("provide at least one field to change")
+            if allow_internet_access is False and set(fields) != {"allow_internet_access"}:
+                raise ValueError(
+                    "allow_internet_access=false blocks all traffic and cannot be combined "
+                    "with allowlists or domain edits"
+                )
+            api = get_session().get_client().with_options(max_retries=0).sandbox.api
+            return api.patch_network_policy(sandbox_id, **fields)
 
         return _run_lifecycle_tool(_run)
 

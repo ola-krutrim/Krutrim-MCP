@@ -1,10 +1,13 @@
 """Compatibility helpers for generated Krutrim SDK behavior."""
 
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 from urllib.parse import unquote
 
+import httpx
 from krutrim_client import KrutrimClient
+from krutrim_client._base_client import make_request_options
 
 from krutrim_mcp_server.config import KNOWN_REGIONS
 
@@ -128,9 +131,63 @@ def _install_masked_krn_guard(client: KrutrimClient) -> None:
     hooks.append(_reject_masked_krns_in_request)
 
 
+def _fetch_network_id_from_vpc(
+    self: Any,
+    *,
+    vpc_krn: str,
+    vpc_name: str,
+    x_region: str | None,
+    extra_headers: Any,
+    timeout: Any,
+) -> str:
+    """Replacement for the SDK's ASG network lookup.
+
+    krutrim-client 0.8.7 and 0.8.8 call ``_get(..., cast_to=dict)`` and then ``.json()`` on
+    the result; a bare ``dict`` cast crashes on every valid response, so
+    create_asg and create_launch_template could never succeed. Request the raw
+    response instead and read the network KRN from it.
+    """
+    headers: dict[str, Any] = {"Accept": "*/*"}
+    if x_region:
+        headers["x-region"] = x_region
+    headers.update(extra_headers or {})
+    response = self._get(
+        "/v1/highlvlvpc/describe_vpc",
+        options=make_request_options(
+            extra_headers=headers,
+            extra_query={"vpc_name": vpc_name, "vpc_id": vpc_krn},
+            timeout=timeout,
+        ),
+        cast_to=httpx.Response,
+    )
+    try:
+        detail = response.json()
+        network_id = next(iter(detail.values()))["networks"]["krn_id"]
+    except (AttributeError, KeyError, StopIteration, TypeError, ValueError):
+        network_id = None
+    if not isinstance(network_id, str) or not network_id:
+        raise ValueError(
+            "VPC detail did not include a network KRN; check vpc_name and vpc_krn "
+            "with describe_vpc before creating an auto-scaling group or launch template"
+        )
+    return network_id
+
+
+def _patch_asg_network_lookup(client: KrutrimClient) -> None:
+    resources = [getattr(client, "asgV1", None)]
+    asg = getattr(client, "asg", None)
+    resources.append(getattr(asg, "v1", None))
+    for resource in resources:
+        if resource is None or getattr(resource, "_krutrim_mcp_network_patched", False):
+            continue
+        resource._fetch_network_id_from_vpc = partial(_fetch_network_id_from_vpc, resource)
+        resource._krutrim_mcp_network_patched = True
+
+
 def patch_client_compatibility(client: KrutrimClient) -> None:
-    """Patch only verified high-level VPC sync-validator drift."""
+    """Patch verified SDK drift: ASG network lookup and high-level VPC validators."""
     _install_masked_krn_guard(client)
+    _patch_asg_network_lookup(client)
     resource = getattr(client, "highlvlvpc", None)
     if resource is None:
         return

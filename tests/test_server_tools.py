@@ -45,7 +45,7 @@ def test_tools_registered(server) -> None:
     tools = server._tool_manager.list_tools()
     names = {t.name for t in tools}
     assert names == (READ_ONLY_TOOLS | ADDITIVE_TOOLS | DESTRUCTIVE_TOOLS) - UNAVAILABLE_TOOLS
-    assert len(names) == 161
+    assert len(names) == 187
 
 
 def test_default_catalog_exposes_all_supported_tools(
@@ -53,7 +53,7 @@ def test_default_catalog_exposes_all_supported_tools(
 ) -> None:
     srv = create_server(_settings(tool_profile="core-readonly", enable_sensitive_tools=False))
     tools = srv._tool_manager.list_tools()
-    assert len(tools) == 161
+    assert len(tools) == 187
     assert srv._tool_manager.get_tool("list_compute_flavors") is not None
     assert srv._tool_manager.get_tool("list_gpu_compute_flavors") is not None
     assert srv._tool_manager.get_tool("list_kpod_flavors") is not None
@@ -80,39 +80,6 @@ def test_dns_catalog_matches_official_krutrim_client_examples(server) -> None:
         "remove_dns_zone_vpc",
         "update_dns_record",
     }
-
-
-def test_certificate_tools_are_not_registered_on_main(server) -> None:
-    removed_names = {
-        "add_certificate_tags",
-        "delete_certificate",
-        "describe_certificate",
-        "get_certificate_tag_value",
-        "get_expiring_certificates",
-        "list_certificates",
-    }
-    registered_names = {tool.name for tool in server._tool_manager.list_tools()}
-    assert removed_names.isdisjoint(registered_names)
-
-
-def test_load_balancer_tools_are_not_registered_on_main(server) -> None:
-    removed_names = {
-        "create_load_balancer",
-        "create_target_group",
-        "delete_load_balancer",
-        "delete_target_group",
-        "describe_load_balancer",
-        "get_detailed_target_groups",
-        "get_load_balancer_payload",
-        "get_load_balancer_task_status",
-        "list_load_balancers",
-        "list_target_group_names",
-        "list_target_groups",
-        "update_load_balancer",
-        "update_target_group",
-    }
-    registered_names = {tool.name for tool in server._tool_manager.list_tools()}
-    assert removed_names.isdisjoint(registered_names)
 
 
 def test_region_scoped_tools_require_region_selection(server) -> None:

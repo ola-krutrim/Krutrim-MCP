@@ -1,8 +1,8 @@
 # Krutrim Cloud MCP Server
 
 Use Krutrim Cloud from VS Code, Cursor, Claude Desktop, Claude Code, or Codex.
-The local stdio server provides 161 tools for discovery and controlled operations
-across compute, networking, storage, Kubernetes, KPods, Sandboxes, and IAM.
+The local stdio server provides 187 tools for discovery and controlled operations
+across compute, networking (including load balancers and certificates), storage, Kubernetes, KPods, Sandboxes, and IAM.
 
 ## Install
 
@@ -11,7 +11,7 @@ across compute, networking, storage, Kubernetes, KPods, Sandboxes, and IAM.
 Run the pinned package without installing it into your current Python environment:
 
 ```bash
-uvx krutrim-mcp-server@1.0.12 --version
+uvx krutrim-mcp-server@1.0.13 --version
 ```
 
 ### Python virtual environment
@@ -19,7 +19,7 @@ uvx krutrim-mcp-server@1.0.12 --version
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install krutrim-mcp-server==1.0.12
+python -m pip install krutrim-mcp-server==1.0.13
 python -m krutrim_mcp_server --version
 ```
 
@@ -61,7 +61,7 @@ Use `.vscode/mcp.json`; the masked prompt keeps the key out of the file:
     "krutrim-cloud": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["krutrim-mcp-server@1.0.12"],
+      "args": ["krutrim-mcp-server@1.0.13"],
       "env": {
         "KRUTRIM_API_KEY": "${input:krutrim-api-key}"
       }
@@ -87,7 +87,7 @@ Use your client's private MCP configuration:
   "mcpServers": {
     "krutrim-cloud": {
       "command": "uvx",
-      "args": ["krutrim-mcp-server@1.0.12"],
+      "args": ["krutrim-mcp-server@1.0.13"],
       "env": {
         "KRUTRIM_API_KEY": "YOUR_KRUTRIM_API_KEY"
       }
@@ -104,7 +104,7 @@ Add this to your private `~/.codex/config.toml`:
 [mcp_servers.krutrim-cloud]
 enabled = true
 command = "uvx"
-args = ["krutrim-mcp-server@1.0.12"]
+args = ["krutrim-mcp-server@1.0.13"]
 
 [mcp_servers.krutrim-cloud.env]
 KRUTRIM_API_KEY = "YOUR_KRUTRIM_API_KEY"
@@ -145,8 +145,8 @@ several minutes to appear in listings.
 With the API key configured privately:
 
 ```bash
-uvx krutrim-mcp-server@1.0.12 --list-tools
-uvx krutrim-mcp-server@1.0.12 --doctor
+uvx krutrim-mcp-server@1.0.13 --list-tools
+uvx krutrim-mcp-server@1.0.13 --doctor
 ```
 
 `--doctor` checks local configuration, not Cloud authentication. Use a read-only

@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.13 — 2026-10-26
+
+- Updated to `krutrim-client` 0.8.8.
+- New `update_sandbox_network_policy` (full replacement) and `patch_sandbox_network_policy`
+  (partial update with outbound-domain add/remove) tools. The service now enforces
+  Sandbox network policy; responses report `enforcement_status`.
+- `set_sandbox_ttl` accepts `0` to disable expiry (the Sandbox then keeps billing until
+  deleted).
+- New `upload_image_s3` tool: import a VM image (qcow2, vhd, vhdx, vmdk, raw, iso) into
+  Krutrim Cloud from an HTTP(S) URL.
+- `create_asg` and `create_launch_template` are enabled again. `krutrim-client` 0.8.7
+  crashed while looking up the VPC network for both calls; the server now performs that
+  lookup itself.
+- New load balancer tools: `list_load_balancers`, `describe_load_balancer`,
+  `get_load_balancer_payload`, `get_load_balancer_task_status`, `create_load_balancer`,
+  `update_load_balancer`, `delete_load_balancer`, and target group tools
+  `list_target_groups`, `list_target_group_names`, `get_detailed_target_groups`,
+  `create_target_group`, `update_target_group`, `delete_target_group`.
+- New certificate manager tools: `list_certificates`, `describe_certificate`,
+  `get_expiring_certificates`, `get_certificate_tag_value`, `import_certificate`,
+  `update_certificate`, `delete_certificate`, `add_certificate_tags`.
+
 ## 1.0.12 — 2026-10-23
 
 - New `set_sandbox_flavor` tool: resize a running Sandbox to another active flavor

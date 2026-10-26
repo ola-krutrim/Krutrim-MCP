@@ -1045,7 +1045,7 @@ def test_create_redacts_environment_echoed_by_backend(harness):
     assert "***REDACTED***" in result.model_dump_json()
 
 
-def test_lifecycle_catalog_is_exactly_eight_tools(harness):
+def test_lifecycle_catalog_is_exactly_ten_tools(harness):
     expected = {
         "list_sandbox_templates",
         "list_sandbox_flavors",
@@ -1054,6 +1054,8 @@ def test_lifecycle_catalog_is_exactly_eight_tools(harness):
         "create_sandbox",
         "set_sandbox_ttl",
         "set_sandbox_flavor",
+        "update_sandbox_network_policy",
+        "patch_sandbox_network_policy",
         "delete_sandbox",
     }
     module = importlib.import_module(MODULE)
