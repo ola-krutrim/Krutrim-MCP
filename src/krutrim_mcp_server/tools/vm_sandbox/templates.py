@@ -27,12 +27,7 @@ def register(mcp: Any) -> None:
         limit: Annotated[Limit, Field(ge=1, le=200)] = 20,
         offset: Annotated[Offset, Field(ge=0)] = 0,
     ) -> ToolSuccess:
-        """List VM Sandbox templates in the selected region.
-
-        Platform templates include base, hermes-python, node, and python.
-        Custom templates built from container images are listed too. These are
-        not Sandbox templates and cannot be passed to create_sandbox.
-        """
+        """List VM Sandbox templates, including base, hermes-python, node, and python."""
 
         def _run() -> Any:
             return api.list_templates(

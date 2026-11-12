@@ -123,9 +123,7 @@ List resources, select exact identifiers and a supported region
 List my VPCs in In-Bangalore-1.
 List IAM users.
 Show Sandbox flavors and templates before creating a Sandbox.
-Show VM Sandbox flavors and templates before creating a VM Sandbox.
-VM Sandbox tools accept only `In-Hyderabad-1`. Other services still accept
-`In-Bangalore-1` or `In-Hyderabad-1`, and the region must still be passed explicitly.
+Show VM Sandbox flavors in In-Hyderabad-1 before creating a VM Sandbox.
 ```
 
 | Goal | Start with |

@@ -1,7 +1,4 @@
-"""VM Sandbox tools for the /sandbox/v1 API.
-
-These tools are a separate product from Sandbox (/omni/sandbox/v1).
-"""
+"""VM Sandbox tools."""
 
 from typing import Any
 

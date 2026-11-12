@@ -24,11 +24,7 @@ def register(mcp: Any) -> None:
         krn_id: VmSandboxID,
         region: VmSandboxRegion,
     ) -> ToolSuccess:
-        """Read the current VM Sandbox egress policy and enforcement state.
-
-        This is not update_sandbox_network_policy. VM Sandbox has no inbound
-        allowlist and no incremental domain patch.
-        """
+        """Read the VM Sandbox egress policy and whether it has been applied."""
 
         def _run() -> Any:
             return api.retrieve_network(
@@ -45,13 +41,10 @@ def register(mcp: Any) -> None:
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
     ) -> ToolSuccess:
-        """Replace the VM Sandbox egress policy. The call returns immediately.
+        """Replace the egress policy. Poll the returned operation.
 
-        default_action deny plus allow is "allow only listed". default_action
-        allow plus deny is "block listed". Each list holds at most 64 domains,
-        *.domain names, IPv4 addresses, or IPv4 CIDRs. URLs, ports, and IPv6
-        are rejected. Poll the returned operation before the next change. This
-        does not patch Sandbox network policy.
+        Use default_action deny with an allow list, or allow with a deny list.
+        Each list holds at most 64 domains, *.domain names, IPv4 addresses, or CIDRs.
         """
 
         def _run() -> Any:

@@ -264,10 +264,8 @@ def test_server_registers_vm_sandbox_without_removing_sandbox_tools():
         "list_sandbox_flavors",
     } <= names
     assert len(names) == 216
-    assert "VM Sandbox is a separate product" in server.instructions
     assert "VM Sandbox is only available in In-Hyderabad-1" in server.instructions
-    assert "/sandbox/v1" in server.instructions
-    assert "/omni/sandbox/v1" in server.instructions
+    assert "separate product" not in server.instructions
     create = server._tool_manager.get_tool("create_vm_sandbox")
     assert {"name", "region", "flavor", "confirm"} <= set(create.parameters["required"])
     region_schema = create.parameters["properties"]["region"]
@@ -278,7 +276,7 @@ def test_server_registers_vm_sandbox_without_removing_sandbox_tools():
     assert "template" not in create.parameters["required"]
     assert "ttl_seconds" not in create.parameters["required"]
     assert "one hour" in create.description
-    assert "startup-script" in create.description
+    assert "startup-script" not in create.description
     assert create.annotations.readOnlyHint is False
     listed = server._tool_manager.get_tool("list_vm_sandboxes")
     waiting = server._tool_manager.get_tool("wait_vm_sandbox_operation")

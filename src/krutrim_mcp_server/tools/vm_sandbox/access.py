@@ -32,12 +32,7 @@ def register(mcp: Any) -> None:
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
     ) -> ToolSuccess:
-        """Expose a VM Sandbox port as token or private.
-
-        access=token returns a credential URL on this call only. Store it
-        securely; list_vm_sandbox_ports does not show it again. access=private
-        does not mint that URL. This is not open_sandbox_port.
-        """
+        """Expose a port as token or private. access=token returns a credential URL once."""
 
         def _run() -> Any:
             ensure_writable(settings(), "expose_vm_sandbox_port")

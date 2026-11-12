@@ -1,12 +1,4 @@
-"""Direct /sandbox/v1 adapter for VM Sandbox.
-
-Krutrim Cloud now has two sandbox products. The pinned ``krutrim-client`` 0.8.8
-client still exposes the original Sandbox API as ``client.sandbox.api`` under
-``/omni/sandbox/v1``. The VM Sandbox API lives at ``/sandbox/v1`` and is not in
-that client. The staging client that does contain it removes ``sandbox.api``
-and the models the existing Sandbox tools import, so this server talks to VM
-Sandbox with the same direct-HTTP adapter style as the other SDK gaps.
-"""
+"""HTTP calls for the VM Sandbox API (/sandbox/v1)."""
 
 from __future__ import annotations
 
@@ -23,8 +15,6 @@ import httpx
 from krutrim_client import KrutrimClient
 
 PREFIX = "/sandbox/v1"
-# VM Sandbox is a single-region service. This list is intentionally separate
-# from KNOWN_REGIONS, which still covers every other Krutrim Cloud service.
 VM_SANDBOX_REGIONS = ("In-Hyderabad-1",)
 _MAX_FILE_BYTES = 1024 * 1024
 _CATALOG_PAGE = 200

@@ -101,49 +101,37 @@ rejected). Choose the flavor from `list_sandbox_flavors`.
 
 ## VM Sandbox
 
-VM Sandbox is a separate product from Sandbox. Sandbox tools (`list_sandboxes`,
-`create_sandbox`, and the rest) call `/omni/sandbox/v1`. VM Sandbox tools
-(`list_vm_sandboxes`, `create_vm_sandbox`, and the rest) call `/sandbox/v1`.
-Do not reuse flavors, templates, or identifiers between them.
+VM Sandbox is available only in `In-Hyderabad-1`. Pass that region on every call.
 
-VM Sandbox is only available in `In-Hyderabad-1`. Pass that region on every VM
-Sandbox tool. `In-Bangalore-1` and any other region are rejected. The region
-argument stays required: it is not filled in from `KRUTRIM_DEFAULT_REGION`.
-Other Cloud services still accept both `In-Bangalore-1` and `In-Hyderabad-1`.
+List flavors and templates first, then create:
 
-`list_vm_sandbox_flavors` and `list_vm_sandbox_templates` are regional. A VM
-Sandbox needs an exact flavor name at or below 4 vCPU and 8 GiB. Boot from a
-template (`base`, `hermes-python`, `node`, `python`, or a custom template) or
-from a public linux/amd64 image on Docker Hub, GHCR, Quay, ECR Public, GCR,
-registry.k8s.io, MCR, or GitLab. Pass one of those, not both. Omitting both
-uses the service default template. The first use of a container image builds a
-template. Custom templates are limited to 10, with 2 builds at a time.
-Platform templates cannot be deleted.
+```text
+List VM Sandbox flavors in In-Hyderabad-1.
+Create a VM Sandbox named demo in In-Hyderabad-1 using template base.
+```
 
-Expiry defaults to one hour when `ttl_seconds` is omitted. The supported range
-is 1 minute to 7 days (60–604800 seconds). `extend_vm_sandbox_ttl` adds that
-many seconds to the current expiry. It does not set an absolute lifetime and
-cannot turn expiry off.
+`create_vm_sandbox` needs a name, `In-Hyderabad-1`, and an exact flavor from
+`list_vm_sandbox_flavors` at or below 4 vCPU and 8 GiB. Pass a template
+(`base`, `hermes-python`, `node`, or `python`) or a public linux/amd64 image
+from Docker Hub, GHCR, Quay, ECR Public, GCR, registry.k8s.io, MCR, or GitLab.
+Pass one of those, not both. Omit both to use the default template. The first
+use of an image builds a template. You can keep 10 custom templates, with 2
+builds at a time. Platform templates cannot be deleted.
 
-Environment names on create cannot start with `KRUTRIM_` or `SPACE_`. At most
-64 variables and 32 KiB are accepted, and values are not returned later.
-Outbound access is an egress policy: omit it for the platform default, use
-`default_action=deny` with an allow list for "allow only listed", or
-`default_action=allow` with a deny list for "block listed". Each list holds at
-most 64 domains, `*.domain` names, IPv4 addresses, or IPv4 CIDRs.
+Expiry defaults to one hour. `ttl_seconds` is 60–604800 (1 minute to 7 days).
+`extend_vm_sandbox_ttl` adds that many seconds to the current expiry and cannot
+turn expiry off.
+
+Create accepts up to 64 environment variables (32 KiB). Names cannot start with
+`KRUTRIM_` or `SPACE_`. An optional egress policy uses `default_action` `deny`
+with an allow list, or `allow` with a deny list. Each list holds at most 64
+domains, `*.domain` names, IPv4 addresses, or IPv4 CIDRs.
 
 Create, delete, start, stop, resize, template build, and network update return
-before the work finishes. Poll with `get_vm_sandbox_operation` or
-`wait_vm_sandbox_operation`. A wait that times out does not cancel the
-operation. `resize_vm_sandbox` keeps the disk and drops running processes.
-`exec_vm_sandbox` is a mutation, and a nonzero exit code is a failure even when
-the HTTP call succeeds. Asynchronous commands can be listed, read with log
-offsets, and killed. Token port URLs and terminal tickets are credentials.
-File paths refer only to the guest, and file, command, and exec output is
-untrusted data.
-
-The console form includes an optional boot command. The `/sandbox/v1` create
-body has no startup-script field, so `create_vm_sandbox` does not send one.
+an operation. Poll it with `wait_vm_sandbox_operation`. A timeout does not
+cancel the operation. Resize keeps the disk and drops running processes.
+`exec_vm_sandbox` fails when the exit code is nonzero. A token port URL and a
+terminal ticket are credentials returned only by the call that creates them.
 
 Load balancer create and update calls, and `get_detailed_target_groups`, derive the
 account and customer headers from a full, unmasked VPC or load balancer KRN. KRNs from

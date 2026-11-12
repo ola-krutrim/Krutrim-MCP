@@ -1,4 +1,4 @@
-"""VM Sandbox lifecycle tools. These call /sandbox/v1, not the Sandbox API."""
+"""VM Sandbox lifecycle tools."""
 
 from typing import Annotated, Any, Literal
 
@@ -54,12 +54,7 @@ def register(mcp: Any) -> None:
         limit: Annotated[Limit, Field(ge=1, le=200)] = 20,
         offset: Annotated[Offset, Field(ge=0)] = 0,
     ) -> ToolSuccess:
-        """List VM Sandboxes in the selected region.
-
-        This is the VM Sandbox product (/sandbox/v1), not Sandbox
-        (/omni/sandbox/v1). Filter by exact lifecycle status or name. Results
-        use limit/offset pagination.
-        """
+        """List VM Sandboxes. Optionally filter by status or name."""
 
         def _run() -> Any:
             return api.list_sandboxes(
@@ -93,13 +88,7 @@ def register(mcp: Any) -> None:
         limit: Annotated[Limit, Field(ge=1, le=200)] = 20,
         offset: Annotated[Offset, Field(ge=0)] = 0,
     ) -> ToolSuccess:
-        """List VM Sandbox flavors in the selected region.
-
-        Use the exact flavor name with create_vm_sandbox or resize_vm_sandbox.
-        The platform limit is 4 vCPU and 8 GiB. Reported size and cost are a
-        live snapshot, not a capacity guarantee. These flavors are not Sandbox
-        flavors and are not interchangeable with list_sandbox_flavors.
-        """
+        """List VM Sandbox flavors. Use an exact name at or below 4 vCPU and 8 GiB."""
 
         def _run() -> Any:
             return api.list_flavors(
@@ -133,29 +122,13 @@ def register(mcp: Any) -> None:
     ) -> ToolSuccess:
         """Create a VM Sandbox from a template or a public container image.
 
-        This is not create_sandbox. Call list_vm_sandbox_flavors and
-        list_vm_sandbox_templates first and pass an exact flavor name at or
-        below 4 vCPU and 8 GiB. Pass template or image, not both. Omit both to
-        use the service default template (base in the console). Other platform
-        templates include hermes-python, node, and python. A container image
-        must be a public linux/amd64 reference of at most 255 characters from
-        Docker Hub, GHCR, Quay, ECR Public, GCR, registry.k8s.io, MCR, or
-        GitLab, and it should be Debian or Ubuntu based. The first use of an
-        image builds a template.
-        Environment names cannot start with KRUTRIM_ or SPACE_, and at most 64
-        variables / 32 KiB are accepted. Values are not returned later.
-        Outbound policy, when set, is an egress object: default_action deny
-        with allow lists only those destinations; default_action allow with
-        deny blocks those destinations. Omit network for the platform default.
-        Each list holds at most 64 domains, *.domain names, IPv4 addresses, or
-        IPv4 CIDRs. URLs, ports, and IPv6 are rejected.
-        Expiry defaults to one hour when ttl_seconds is omitted. Supported
-        duration is 1 minute to 7 days (60–604800 seconds). Explain that expiry
-        before confirmation. Creation returns before the sandbox is ready;
-        poll get_vm_sandbox_operation or wait_vm_sandbox_operation. A wait
-        timeout does not cancel the operation.
-        The console form also has a boot command. This API has no
-        startup-script field, so none is sent.
+        Call list_vm_sandbox_flavors and list_vm_sandbox_templates first. Pass
+        an exact flavor at or below 4 vCPU and 8 GiB, and a template or an image,
+        not both. Omit both to use the default template. Images must be public
+        linux/amd64 references of at most 255 characters. Environment names cannot
+        start with KRUTRIM_ or SPACE_ (at most 64 variables, 32 KiB). Expiry
+        defaults to one hour (60–604800 seconds). The call returns an operation;
+        poll it with wait_vm_sandbox_operation. A timeout does not cancel it.
         """
 
         def _run() -> Any:
@@ -188,11 +161,7 @@ def register(mcp: Any) -> None:
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
     ) -> ToolSuccess:
-        """Delete one VM Sandbox. The request returns before deletion finishes.
-
-        Poll the returned operation. A deleted sandbox can remain visible in
-        list_vm_sandboxes until that operation succeeds. Do not retry blindly.
-        """
+        """Delete one VM Sandbox. Poll the returned operation; do not retry blindly."""
 
         def _run() -> Any:
             ensure_writable(settings(), "delete_vm_sandbox")
@@ -234,11 +203,7 @@ def register(mcp: Any) -> None:
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
     ) -> ToolSuccess:
-        """Stop a VM Sandbox. Files are kept and running processes end.
-
-        The call returns immediately; poll the operation. A stopped sandbox
-        keeps billing until it is deleted or its expiry is reached.
-        """
+        """Stop a VM Sandbox. Files are kept and running processes end. Poll the operation."""
 
         def _run() -> Any:
             ensure_writable(settings(), "stop_vm_sandbox")
@@ -260,11 +225,7 @@ def register(mcp: Any) -> None:
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
     ) -> ToolSuccess:
-        """Add ttl_seconds to the current VM Sandbox expiry.
-
-        This does not set an absolute lifetime and cannot turn expiry off.
-        Pass 60–604800 seconds (1 minute to 7 days). It is not set_sandbox_ttl.
-        """
+        """Add ttl_seconds (60–604800) to the current expiry. Cannot turn expiry off."""
 
         def _run() -> Any:
             ensure_writable(settings(), "extend_vm_sandbox_ttl")
