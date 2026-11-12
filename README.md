@@ -124,6 +124,8 @@ List my VPCs in In-Bangalore-1.
 List IAM users.
 Show Sandbox flavors and templates before creating a Sandbox.
 Show VM Sandbox flavors and templates before creating a VM Sandbox.
+VM Sandbox tools accept only `In-Hyderabad-1`. Other services still accept
+`In-Bangalore-1` or `In-Hyderabad-1`, and the region must still be passed explicitly.
 ```
 
 | Goal | Start with |
@@ -133,7 +135,7 @@ Show VM Sandbox flavors and templates before creating a VM Sandbox.
 | Allocate a floating IP | `describe_vpc`, then `create_floating_ip` |
 | Create a KPod | `list_kpod_flavors` and `list_kpod_templates` |
 | Create a Sandbox | `list_sandbox_flavors` and `list_sandbox_templates` |
-| Create a VM Sandbox | `list_vm_sandbox_flavors` and `list_vm_sandbox_templates` |
+| Create a VM Sandbox | `list_vm_sandbox_flavors` and `list_vm_sandbox_templates` in `In-Hyderabad-1` |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
 | Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
 

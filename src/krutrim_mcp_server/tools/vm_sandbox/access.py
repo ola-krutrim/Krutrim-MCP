@@ -7,7 +7,7 @@ from pydantic import Field, StrictInt, StrictStr
 from krutrim_mcp_server.adapters import vm_sandbox as api
 from krutrim_mcp_server.client import get_session
 from krutrim_mcp_server.guards import ensure_confirmed, ensure_writable
-from krutrim_mcp_server.tools import CONFIRM_FIELD, REGION_FIELD, Region, ToolSuccess, settings
+from krutrim_mcp_server.tools import CONFIRM_FIELD, ToolSuccess, settings
 from krutrim_mcp_server.tools.vm_sandbox._support import (
     IDEMPOTENCY_FIELD,
     Confirm,
@@ -15,6 +15,7 @@ from krutrim_mcp_server.tools.vm_sandbox._support import (
     Limit,
     Offset,
     VmSandboxID,
+    VmSandboxRegion,
     run_vm_tool,
 )
 
@@ -25,7 +26,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def expose_vm_sandbox_port(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         port: Annotated[StrictInt, Field(ge=1, le=65535)],
         access: _ACCESS,
         confirm: Annotated[Confirm, CONFIRM_FIELD],
@@ -55,7 +56,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def list_vm_sandbox_ports(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         limit: Annotated[Limit, Field(ge=1, le=200)] = 20,
         offset: Annotated[Offset, Field(ge=0)] = 0,
     ) -> ToolSuccess:
@@ -75,7 +76,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def close_vm_sandbox_port(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         port: Annotated[StrictInt, Field(ge=1, le=65535)],
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
@@ -98,7 +99,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def read_vm_sandbox_file(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         path: StrictStr,
     ) -> ToolSuccess:
         """Read a UTF-8 text file from the VM Sandbox guest.
@@ -121,7 +122,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def write_vm_sandbox_file(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         path: StrictStr,
         content: StrictStr,
         confirm: Annotated[Confirm, CONFIRM_FIELD],
@@ -149,7 +150,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def create_vm_sandbox_terminal_ticket(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         confirm: Annotated[Confirm, CONFIRM_FIELD],
     ) -> ToolSuccess:
         """Mint a one-use VM Sandbox terminal ticket.

@@ -18,9 +18,9 @@ from krutrim_mcp_server.tools.sandbox import lifecycle as sandbox_lifecycle
 
 FastMCPSettings.model_rebuild()
 
-REGION = "In-Bangalore-1"
+REGION = "In-Hyderabad-1"
 PREFIX = "/sandbox/v1"
-KRN = "krn:vm-sandbox:In-Bangalore-1:acct:cust:demo"
+KRN = "krn:vm-sandbox:In-Hyderabad-1:acct:cust:demo"
 FLAVOR = "sandbox-medium-hyd"
 MODULES = (
     "krutrim_mcp_server.tools.vm_sandbox.lifecycle",
@@ -265,10 +265,16 @@ def test_server_registers_vm_sandbox_without_removing_sandbox_tools():
     } <= names
     assert len(names) == 216
     assert "VM Sandbox is a separate product" in server.instructions
+    assert "VM Sandbox is only available in In-Hyderabad-1" in server.instructions
     assert "/sandbox/v1" in server.instructions
     assert "/omni/sandbox/v1" in server.instructions
     create = server._tool_manager.get_tool("create_vm_sandbox")
     assert {"name", "region", "flavor", "confirm"} <= set(create.parameters["required"])
+    region_schema = create.parameters["properties"]["region"]
+    assert region_schema.get("const") == "In-Hyderabad-1" or region_schema.get("enum") == [
+        "In-Hyderabad-1"
+    ]
+    assert "only available in In-Hyderabad-1" in region_schema["description"]
     assert "template" not in create.parameters["required"]
     assert "ttl_seconds" not in create.parameters["required"]
     assert "one hour" in create.description
@@ -449,10 +455,28 @@ def test_masked_krn_is_rejected_before_http(harness):
     with pytest.raises(ToolError, match=r":\*\*\*:"):
         harness.call(
             "describe_vm_sandbox",
-            krn_id="krn:vm-sandbox:In-Bangalore-1:***:cust:demo",
+            krn_id="krn:vm-sandbox:In-Hyderabad-1:***:cust:demo",
             region=REGION,
         )
     assert harness.requests == []
+
+
+def test_bangalore_and_other_regions_are_rejected_for_vm_sandbox(harness):
+    for region in ("In-Bangalore-1", "In-Hyderabad-2", "us-east-1", ""):
+        with pytest.raises(ToolError, match="VM Sandbox is only available in In-Hyderabad-1"):
+            harness.call("list_vm_sandboxes", region=region)
+    assert harness.requests == []
+
+
+def test_vm_sandbox_region_limit_does_not_change_other_services():
+    from typing import get_args
+
+    from krutrim_mcp_server.config import KNOWN_REGIONS
+    from krutrim_mcp_server.tools import Region
+
+    assert KNOWN_REGIONS == ("In-Bangalore-1", "In-Hyderabad-1")
+    assert get_args(Region) == ("In-Bangalore-1", "In-Hyderabad-1")
+    assert adapter.VM_SANDBOX_REGIONS == ("In-Hyderabad-1",)
 
 
 @pytest.mark.parametrize(

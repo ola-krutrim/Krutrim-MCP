@@ -67,7 +67,7 @@ one.
 | Allocate a floating IP | `describe_vpc`, then `create_floating_ip` |
 | Create a KPod | `list_kpod_flavors` and `list_kpod_templates` |
 | Create a Sandbox | `list_sandbox_flavors` (custom image: follow [BYOC](https://docs.cloud.olakrutrim.com/basics/core-infrastructure/sandbox/bring-your-own-container-byoc) first) |
-| Create a VM Sandbox | `list_vm_sandbox_flavors` and `list_vm_sandbox_templates` |
+| Create a VM Sandbox | `list_vm_sandbox_flavors` and `list_vm_sandbox_templates` in `In-Hyderabad-1` |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
 | Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
 | Manage load balancers | `list_load_balancers`, `list_target_groups`, and `get_load_balancer_payload` |
@@ -105,6 +105,11 @@ VM Sandbox is a separate product from Sandbox. Sandbox tools (`list_sandboxes`,
 `create_sandbox`, and the rest) call `/omni/sandbox/v1`. VM Sandbox tools
 (`list_vm_sandboxes`, `create_vm_sandbox`, and the rest) call `/sandbox/v1`.
 Do not reuse flavors, templates, or identifiers between them.
+
+VM Sandbox is only available in `In-Hyderabad-1`. Pass that region on every VM
+Sandbox tool. `In-Bangalore-1` and any other region are rejected. The region
+argument stays required: it is not filled in from `KRUTRIM_DEFAULT_REGION`.
+Other Cloud services still accept both `In-Bangalore-1` and `In-Hyderabad-1`.
 
 `list_vm_sandbox_flavors` and `list_vm_sandbox_templates` are regional. A VM
 Sandbox needs an exact flavor name at or below 4 vCPU and 8 GiB. Boot from a

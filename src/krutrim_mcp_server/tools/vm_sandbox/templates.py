@@ -7,7 +7,7 @@ from pydantic import Field, StrictStr
 from krutrim_mcp_server.adapters import vm_sandbox as api
 from krutrim_mcp_server.client import get_session
 from krutrim_mcp_server.guards import ensure_confirmed, ensure_writable
-from krutrim_mcp_server.tools import CONFIRM_FIELD, REGION_FIELD, Region, ToolSuccess, settings
+from krutrim_mcp_server.tools import CONFIRM_FIELD, ToolSuccess, settings
 from krutrim_mcp_server.tools.vm_sandbox._support import (
     IDEMPOTENCY_FIELD,
     Confirm,
@@ -15,6 +15,7 @@ from krutrim_mcp_server.tools.vm_sandbox._support import (
     Limit,
     Offset,
     VmSandboxID,
+    VmSandboxRegion,
     run_vm_tool,
 )
 
@@ -22,7 +23,7 @@ from krutrim_mcp_server.tools.vm_sandbox._support import (
 def register(mcp: Any) -> None:
     @mcp.tool()
     def list_vm_sandbox_templates(
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         limit: Annotated[Limit, Field(ge=1, le=200)] = 20,
         offset: Annotated[Offset, Field(ge=0)] = 0,
     ) -> ToolSuccess:
@@ -46,7 +47,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def describe_vm_sandbox_template(
         template_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
     ) -> ToolSuccess:
         """Read one VM Sandbox template by the id or KRN from list_vm_sandbox_templates."""
 
@@ -64,7 +65,7 @@ def register(mcp: Any) -> None:
             Field(min_length=2, max_length=40, pattern=r"^[a-z][a-z0-9-]{1,39}$"),
         ],
         image: Annotated[StrictStr, Field(min_length=1, max_length=255)],
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         description: StrictStr | None = None,
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
@@ -96,7 +97,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def delete_vm_sandbox_template(
         template_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
     ) -> ToolSuccess:

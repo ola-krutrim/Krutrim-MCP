@@ -7,7 +7,7 @@ from pydantic import Field, StrictInt, StrictStr
 from krutrim_mcp_server.adapters import vm_sandbox as api
 from krutrim_mcp_server.client import get_session
 from krutrim_mcp_server.guards import ensure_confirmed, ensure_writable
-from krutrim_mcp_server.tools import CONFIRM_FIELD, REGION_FIELD, Region, ToolSuccess, settings
+from krutrim_mcp_server.tools import CONFIRM_FIELD, ToolSuccess, settings
 from krutrim_mcp_server.tools.vm_sandbox._support import (
     IDEMPOTENCY_FIELD,
     Confirm,
@@ -16,6 +16,7 @@ from krutrim_mcp_server.tools.vm_sandbox._support import (
     Offset,
     VmSandboxID,
     VmSandboxNetwork,
+    VmSandboxRegion,
     network_body,
     run_vm_tool,
 )
@@ -47,7 +48,7 @@ _ENV = dict[StrictStr, StrictStr] | None
 def register(mcp: Any) -> None:
     @mcp.tool()
     def list_vm_sandboxes(
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         status: _STATUS | None = None,
         name: StrictStr | None = None,
         limit: Annotated[Limit, Field(ge=1, le=200)] = 20,
@@ -75,7 +76,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def describe_vm_sandbox(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
     ) -> ToolSuccess:
         """Read one VM Sandbox by its exact KRN. Does not start it or change its expiry."""
 
@@ -88,7 +89,7 @@ def register(mcp: Any) -> None:
 
     @mcp.tool()
     def list_vm_sandbox_flavors(
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         limit: Annotated[Limit, Field(ge=1, le=200)] = 20,
         offset: Annotated[Offset, Field(ge=0)] = 0,
     ) -> ToolSuccess:
@@ -120,7 +121,7 @@ def register(mcp: Any) -> None:
                 pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$",
             ),
         ],
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         flavor: StrictStr,
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         template: StrictStr | None = None,
@@ -183,7 +184,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def delete_vm_sandbox(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
     ) -> ToolSuccess:
@@ -208,7 +209,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def start_vm_sandbox(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
     ) -> ToolSuccess:
@@ -229,7 +230,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def stop_vm_sandbox(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
     ) -> ToolSuccess:
@@ -254,7 +255,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def extend_vm_sandbox_ttl(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         ttl_seconds: Annotated[StrictInt, Field(ge=60, le=604800)],
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
@@ -281,7 +282,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def resize_vm_sandbox(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         flavor: StrictStr,
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
@@ -309,7 +310,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def get_vm_sandbox_usage(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
     ) -> ToolSuccess:
         """Read metered usage for one VM Sandbox. Does not change the sandbox."""
 

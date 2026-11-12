@@ -5,13 +5,14 @@ from typing import Annotated, Any
 from krutrim_mcp_server.adapters import vm_sandbox as api
 from krutrim_mcp_server.client import get_session
 from krutrim_mcp_server.guards import ensure_confirmed, ensure_writable
-from krutrim_mcp_server.tools import CONFIRM_FIELD, REGION_FIELD, Region, ToolSuccess, settings
+from krutrim_mcp_server.tools import CONFIRM_FIELD, ToolSuccess, settings
 from krutrim_mcp_server.tools.vm_sandbox._support import (
     IDEMPOTENCY_FIELD,
     Confirm,
     IdempotencyKey,
     VmSandboxID,
     VmSandboxNetwork,
+    VmSandboxRegion,
     network_body,
     run_vm_tool,
 )
@@ -21,7 +22,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def get_vm_sandbox_network(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
     ) -> ToolSuccess:
         """Read the current VM Sandbox egress policy and enforcement state.
 
@@ -39,7 +40,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def update_vm_sandbox_network(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         network: VmSandboxNetwork,
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,

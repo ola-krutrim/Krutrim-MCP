@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from krutrim_client import APIError
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
@@ -13,6 +13,17 @@ from krutrim_mcp_server.serialize import _is_secret_key, _redact_scalar
 from krutrim_mcp_server.tools import CONFIRM_FIELD, ToolSuccess, run_tool
 from krutrim_mcp_server.tools.sandbox._responses import redact_secrets
 
+VmSandboxRegion = Annotated[
+    Literal["In-Hyderabad-1"],
+    Field(
+        ...,
+        description=(
+            "VM Sandbox is only available in In-Hyderabad-1. Pass that region "
+            "explicitly. Do not infer it from KRUTRIM_DEFAULT_REGION, and do not "
+            "pass In-Bangalore-1."
+        ),
+    ),
+]
 VmSandboxID = StrictStr
 Confirm = StrictBool
 Limit = StrictInt

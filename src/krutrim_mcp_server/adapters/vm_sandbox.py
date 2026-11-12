@@ -22,9 +22,10 @@ from uuid import uuid4
 import httpx
 from krutrim_client import KrutrimClient
 
-from krutrim_mcp_server.config import KNOWN_REGIONS
-
 PREFIX = "/sandbox/v1"
+# VM Sandbox is a single-region service. This list is intentionally separate
+# from KNOWN_REGIONS, which still covers every other Krutrim Cloud service.
+VM_SANDBOX_REGIONS = ("In-Hyderabad-1",)
 _MAX_FILE_BYTES = 1024 * 1024
 _CATALOG_PAGE = 200
 _PLATFORM_VCPUS = 4
@@ -77,15 +78,15 @@ _DOMAIN_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 
 
 def require_region(value: str) -> str:
-    """Reject a missing or unknown region before any VM Sandbox request."""
+    """Reject every region except In-Hyderabad-1 before any VM Sandbox request."""
     if not isinstance(value, str) or not value.strip():
         raise ValueError(
-            "region must be selected explicitly by the user for this MCP tool call "
-            f"(known: {', '.join(KNOWN_REGIONS)})."
+            "region must be selected explicitly for this VM Sandbox tool. "
+            "VM Sandbox is only available in In-Hyderabad-1."
         )
-    if value not in KNOWN_REGIONS:
+    if value not in VM_SANDBOX_REGIONS:
         raise ValueError(
-            f"unknown region {value!r}; expected one of: {', '.join(KNOWN_REGIONS)}."
+            f"VM Sandbox is only available in In-Hyderabad-1; got {value!r}."
         )
     return value
 

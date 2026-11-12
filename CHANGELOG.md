@@ -27,6 +27,10 @@
   templates are limited to 10, with 2 builds at a time.
 - The console's optional boot command is not part of the `/sandbox/v1` create
   body in the staging client, so `create_vm_sandbox` does not send one.
+- VM Sandbox tools and the `/sandbox/v1` adapter accept only `In-Hyderabad-1`.
+  `In-Bangalore-1` and any other region are rejected with a message that VM
+  Sandbox is only available in `In-Hyderabad-1`. The shared region list used by
+  other services is unchanged, and the VM Sandbox region argument stays required.
 
 ## 1.0.13 — 2026-10-26
 

@@ -7,7 +7,7 @@ from pydantic import Field, StrictInt, StrictStr
 from krutrim_mcp_server.adapters import vm_sandbox as api
 from krutrim_mcp_server.client import get_session
 from krutrim_mcp_server.guards import ensure_confirmed, ensure_writable
-from krutrim_mcp_server.tools import CONFIRM_FIELD, REGION_FIELD, Region, ToolSuccess, settings
+from krutrim_mcp_server.tools import CONFIRM_FIELD, ToolSuccess, settings
 from krutrim_mcp_server.tools.vm_sandbox._support import (
     IDEMPOTENCY_FIELD,
     Confirm,
@@ -15,6 +15,7 @@ from krutrim_mcp_server.tools.vm_sandbox._support import (
     Limit,
     Offset,
     VmSandboxID,
+    VmSandboxRegion,
     fail_nonzero_exec,
     run_vm_tool,
 )
@@ -32,7 +33,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def exec_vm_sandbox(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         cmd: Annotated[StrictStr, Field(min_length=1, max_length=100000)],
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         cwd: StrictStr | None = None,
@@ -73,7 +74,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def create_vm_sandbox_command(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         cmd: Annotated[StrictStr, Field(min_length=1, max_length=100000)],
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         cwd: StrictStr | None = None,
@@ -110,7 +111,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def list_vm_sandbox_commands(
         krn_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         limit: Annotated[Limit, Field(ge=1, le=200)] = 20,
         offset: Annotated[Offset, Field(ge=0)] = 0,
     ) -> ToolSuccess:
@@ -131,7 +132,7 @@ def register(mcp: Any) -> None:
     def get_vm_sandbox_command(
         krn_id: VmSandboxID,
         command_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         stdout_offset: Annotated[StrictInt, Field(ge=0)] | None = None,
         stderr_offset: Annotated[StrictInt, Field(ge=0)] | None = None,
         max_bytes: Annotated[StrictInt, Field(ge=1, le=1048576)] | None = None,
@@ -159,7 +160,7 @@ def register(mcp: Any) -> None:
     def kill_vm_sandbox_command(
         krn_id: VmSandboxID,
         command_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         confirm: Annotated[Confirm, CONFIRM_FIELD],
         idempotency_key: Annotated[IdempotencyKey, IDEMPOTENCY_FIELD] = None,
     ) -> ToolSuccess:

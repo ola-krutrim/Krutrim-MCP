@@ -6,15 +6,15 @@ from pydantic import Field
 
 from krutrim_mcp_server.adapters import vm_sandbox as api
 from krutrim_mcp_server.client import get_session
-from krutrim_mcp_server.tools import REGION_FIELD, Region, ToolSuccess
-from krutrim_mcp_server.tools.vm_sandbox._support import VmSandboxID, run_vm_tool
+from krutrim_mcp_server.tools import ToolSuccess
+from krutrim_mcp_server.tools.vm_sandbox._support import VmSandboxID, VmSandboxRegion, run_vm_tool
 
 
 def register(mcp: Any) -> None:
     @mcp.tool()
     def get_vm_sandbox_operation(
         operation_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
     ) -> ToolSuccess:
         """Read one VM Sandbox operation once.
 
@@ -35,7 +35,7 @@ def register(mcp: Any) -> None:
     @mcp.tool()
     def wait_vm_sandbox_operation(
         operation_id: VmSandboxID,
-        region: Annotated[Region, REGION_FIELD],
+        region: VmSandboxRegion,
         timeout_seconds: Annotated[float, Field(ge=1, le=600)] = 120,
         poll_interval_seconds: Annotated[float, Field(ge=0.5, le=60)] = 2,
     ) -> ToolSuccess:
