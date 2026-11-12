@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.0.14 — 2026-11-12
+
+- Added VM Sandbox as a separate service from Sandbox. Existing Sandbox tools
+  are unchanged and still call `/omni/sandbox/v1` through `krutrim-client` 0.8.8.
+  VM Sandbox tools call `/sandbox/v1`. The staging client that implements that
+  API removes `client.sandbox.api`, so this server uses a direct HTTP adapter
+  instead of replacing the pinned client.
+- New tools: `list_vm_sandboxes`, `describe_vm_sandbox`, `create_vm_sandbox`,
+  `delete_vm_sandbox`, `start_vm_sandbox`, `stop_vm_sandbox`,
+  `extend_vm_sandbox_ttl`, `resize_vm_sandbox`, `get_vm_sandbox_usage`,
+  `list_vm_sandbox_flavors`, `list_vm_sandbox_templates`,
+  `describe_vm_sandbox_template`, `create_vm_sandbox_template`,
+  `delete_vm_sandbox_template`, `get_vm_sandbox_operation`,
+  `wait_vm_sandbox_operation`, `get_vm_sandbox_network`,
+  `update_vm_sandbox_network`, `exec_vm_sandbox`, `create_vm_sandbox_command`,
+  `list_vm_sandbox_commands`, `get_vm_sandbox_command`, `kill_vm_sandbox_command`,
+  `expose_vm_sandbox_port`, `list_vm_sandbox_ports`, `close_vm_sandbox_port`,
+  `read_vm_sandbox_file`, `write_vm_sandbox_file`, and
+  `create_vm_sandbox_terminal_ticket`.
+- `exec_vm_sandbox` treats a nonzero `exit_code` as a failure even when HTTP
+  succeeds. Create, delete, start, stop, resize, template build, and network
+  update return an operation; `wait_vm_sandbox_operation` polls it and a timeout
+  does not cancel the server operation. `extend_vm_sandbox_ttl` adds time and
+  cannot disable expiry. Flavors above 4 vCPU or 8 GiB are rejected. Custom
+  templates are limited to 10, with 2 builds at a time.
+- The console's optional boot command is not part of the `/sandbox/v1` create
+  body in the staging client, so `create_vm_sandbox` does not send one.
+
 ## 1.0.13 — 2026-10-26
 
 - Updated to `krutrim-client` 0.8.8.

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "krutrim-mcp-server"
-version = "1.0.13"
-description = "MCP server for Krutrim Cloud infrastructure and guarded Sandbox operations"
+version = "1.0.14"
+description = "MCP server for Krutrim Cloud infrastructure, Sandbox, and VM Sandbox operations"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10,<3.14"
