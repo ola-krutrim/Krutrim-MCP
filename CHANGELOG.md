@@ -12,6 +12,7 @@
 - Flavors are limited to 4 vCPU and 8 GiB. Custom templates are limited to 10,
   with 2 builds at a time. `extend_vm_sandbox_ttl` adds time and cannot turn
   expiry off.
+- Not-found and conflict errors now show the service's message.
 
 ## 1.0.13 — 2026-10-26
 

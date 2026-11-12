@@ -999,6 +999,26 @@ def test_transport_errors_are_not_retried(harness):
     assert len(harness.requests) == 1
 
 
+@pytest.mark.parametrize(
+    "status,message",
+    [
+        (404, f"no such sandbox: {KRN}"),
+        (409, "sandbox name already exists: demo"),
+    ],
+)
+def test_not_found_and_conflict_show_the_api_message(harness, status, message):
+    harness.replies[("GET", f"{PREFIX}/sandboxes/{KRN}")] = httpx.Response(
+        status,
+        json={"message": message},
+    )
+    with pytest.raises(ToolError) as error:
+        harness.call("describe_vm_sandbox", krn_id=KRN, region=REGION)
+    text = str(error.value)
+    assert f"HTTP {status}" in text
+    assert message in text
+    assert "withheld" not in text
+
+
 def test_server_error_bodies_are_withheld(harness):
     harness.replies[("GET", f"{PREFIX}/sandboxes/{KRN}")] = httpx.Response(
         500,

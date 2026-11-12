@@ -65,7 +65,7 @@ IDEMPOTENCY_FIELD = Field(
         "Reusing it retries the same mutation instead of starting another one."
     ),
 )
-_SURFACED_4XX = frozenset({400, 422})
+_SURFACED_4XX = frozenset({400, 404, 409, 422})
 _MAX_DETAIL = 200
 _CREDENTIAL_FIELDS = frozenset({"ticket", "url", "proxy_url"})
 
