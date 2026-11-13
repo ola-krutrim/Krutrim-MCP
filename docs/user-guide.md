@@ -2,7 +2,7 @@
 
 ## Before you begin
 
-These instructions describe **version 1.0.5** and its API-key-only configuration.
+These instructions describe **version 1.0.14** and its API-key-only configuration.
 Install the release when available on PyPI, or install this checkout during
 release preparation. See [installation](../README.md#install) and
 [client configuration](../README.md#connect-locally).
@@ -67,6 +67,7 @@ one.
 | Allocate a floating IP | `describe_vpc`, then `create_floating_ip` |
 | Create a KPod | `list_kpod_flavors` and `list_kpod_templates` |
 | Create a Sandbox | `list_sandbox_flavors` (custom image: follow [BYOC](https://docs.cloud.olakrutrim.com/basics/core-infrastructure/sandbox/bring-your-own-container-byoc) first) |
+| Create a VM Sandbox | `list_vm_sandbox_flavors` and `list_vm_sandbox_templates` in `In-Hyderabad-1` |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
 | Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
 | Manage load balancers | `list_load_balancers`, `list_target_groups`, and `get_load_balancer_payload` |
@@ -97,6 +98,40 @@ response reports `enforcement_status`.
 `set_sandbox_flavor` resizes a running Sandbox to another active flavor without a
 restart (CPU and memory only; processes and files are kept, and GPU changes are
 rejected). Choose the flavor from `list_sandbox_flavors`.
+
+## VM Sandbox
+
+VM Sandbox is available only in `In-Hyderabad-1`. Pass that region on every call.
+
+List flavors and templates first, then create:
+
+```text
+List VM Sandbox flavors in In-Hyderabad-1.
+Create a VM Sandbox named demo in In-Hyderabad-1 using template base.
+```
+
+`create_vm_sandbox` needs a name, `In-Hyderabad-1`, and an exact flavor from
+`list_vm_sandbox_flavors` at or below 4 vCPU and 8 GiB. Pass a template
+(`base`, `hermes-python`, `node`, or `python`) or a public linux/amd64 image
+from Docker Hub, GHCR, Quay, ECR Public, GCR, registry.k8s.io, MCR, or GitLab.
+Pass one of those, not both. Omit both to use the default template. The first
+use of an image builds a template. You can keep 10 custom templates, with 2
+builds at a time. Platform templates cannot be deleted.
+
+Expiry defaults to one hour. `ttl_seconds` is 60–604800 (1 minute to 7 days).
+`extend_vm_sandbox_ttl` adds that many seconds to the current expiry and cannot
+turn expiry off.
+
+Create accepts up to 64 environment variables (32 KiB). Names cannot start with
+`KRUTRIM_` or `SPACE_`. An optional egress policy uses `default_action` `deny`
+with an allow list, or `allow` with a deny list. Each list holds at most 64
+domains, `*.domain` names, IPv4 addresses, or IPv4 CIDRs.
+
+Create, delete, start, stop, resize, template build, and network update return
+an operation. Poll it with `wait_vm_sandbox_operation`. A timeout does not
+cancel the operation. Resize keeps the disk and drops running processes.
+`exec_vm_sandbox` fails when the exit code is nonzero. A token port URL and a
+terminal ticket are credentials returned only by the call that creates them.
 
 Load balancer create and update calls, and `get_detailed_target_groups`, derive the
 account and customer headers from a full, unmasked VPC or load balancer KRN. KRNs from

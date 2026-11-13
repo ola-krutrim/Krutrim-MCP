@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.14 — 2026-11-12
+
+- Added VM Sandbox tools for sandboxes, flavors, templates, operations, network
+  policy, commands, ports, files, and a terminal ticket.
+- VM Sandbox is only available in `In-Hyderabad-1`. Pass that region on every call.
+- Create, delete, start, stop, resize, template build, and network update return
+  an operation. Poll it with `wait_vm_sandbox_operation`. A timeout does not
+  cancel the operation.
+- `exec_vm_sandbox` fails when the command exit code is nonzero.
+- Flavors are limited to 4 vCPU and 8 GiB. Custom templates are limited to 10,
+  with 2 builds at a time. `extend_vm_sandbox_ttl` adds time and cannot turn
+  expiry off.
+- Not-found and conflict errors now show the service's message.
+- Updated to `krutrim-client` 0.8.9.
+
 ## 1.0.13 — 2026-10-26
 
 - Updated to `krutrim-client` 0.8.8.
