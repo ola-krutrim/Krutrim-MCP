@@ -13,6 +13,7 @@
   with 2 builds at a time. `extend_vm_sandbox_ttl` adds time and cannot turn
   expiry off.
 - Not-found and conflict errors now show the service's message.
+- Updated to `krutrim-client` 0.8.9.
 
 ## 1.0.13 — 2026-10-26
 

@@ -4,10 +4,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field, StrictInt, StrictStr
 
-from krutrim_mcp_server.adapters import vm_sandbox as api
 from krutrim_mcp_server.client import get_session
 from krutrim_mcp_server.guards import ensure_confirmed, ensure_writable
 from krutrim_mcp_server.tools import CONFIRM_FIELD, ToolSuccess, settings
+from krutrim_mcp_server.tools.vm_sandbox import _service as api
 from krutrim_mcp_server.tools.vm_sandbox._support import (
     IDEMPOTENCY_FIELD,
     Confirm,

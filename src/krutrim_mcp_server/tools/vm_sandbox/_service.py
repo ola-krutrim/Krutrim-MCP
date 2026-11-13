@@ -1,4 +1,4 @@
-"""HTTP calls for the VM Sandbox API (/sandbox/v1)."""
+"""Validation and orchestration for the VM Sandbox tools."""
 
 from __future__ import annotations
 
@@ -8,13 +8,10 @@ import re
 import time
 import unicodedata
 from typing import Any
-from urllib.parse import quote
-from uuid import uuid4
 
-import httpx
 from krutrim_client import KrutrimClient
+from pydantic import BaseModel
 
-PREFIX = "/sandbox/v1"
 VM_SANDBOX_REGIONS = ("In-Hyderabad-1",)
 _MAX_FILE_BYTES = 1024 * 1024
 _CATALOG_PAGE = 200
@@ -389,68 +386,20 @@ def _positive_seconds(value: object, name: str, *, minimum: float, maximum: floa
     return float(value)
 
 
-def _request(
-    client: KrutrimClient,
-    method: str,
-    path: str,
-    *,
-    x_region: str,
-    json_body: dict[str, Any] | None = None,
-    params: dict[str, Any] | None = None,
-    content: bytes | None = None,
-    extra_headers: dict[str, str] | None = None,
-    idempotency_key: str | None = None,
-    send_idempotency: bool = False,
-) -> Any:
-    region = require_region(x_region)
-    headers = {"x-region": region, **(extra_headers or {})}
-    if send_idempotency:
-        headers["Idempotency-Key"] = idempotency_key or str(uuid4())
-    options: dict[str, Any] = {"headers": headers, "max_retries": 0}
-    if params:
-        options["params"] = params
-    if content is not None:
-        options["content"] = content
-    api = client.with_options(max_retries=0)
-    if method == "get":
-        response = api.get(path, cast_to=httpx.Response, options=options)
-    elif method == "post":
-        response = api.post(path, cast_to=httpx.Response, body=json_body, options=options)
-    elif method == "put":
-        response = api.put(path, cast_to=httpx.Response, body=json_body, options=options)
-    elif method == "delete":
-        response = api.delete(path, cast_to=httpx.Response, body=json_body, options=options)
-    else:
-        raise ValueError(f"unsupported VM Sandbox method {method}")
-    return _json_object(response)
+def _sandbox_api(client: KrutrimClient) -> Any:
+    """Native VM Sandbox resources, with client-level retries off for every call."""
+    return client.with_options(max_retries=0).sandbox
 
 
-def _json_object(response: httpx.Response) -> dict[str, Any]:
-    if response.status_code >= 400:
-        raise ValueError(
-            f"VM Sandbox request failed (HTTP {response.status_code}); "
-            "response details withheld"
-        )
-    if not response.content:
-        return {"status_code": response.status_code, "accepted": True}
-    try:
-        payload = response.json()
-    except ValueError:
-        raise ValueError("VM Sandbox returned a non-JSON response; details withheld") from None
-    if not isinstance(payload, dict):
+def _dump(response: Any) -> dict[str, Any]:
+    """Return the service envelope exactly as received (code, message, details)."""
+    if not isinstance(response, BaseModel):
         raise ValueError("VM Sandbox returned an unexpected response; details withheld")
-    return payload
+    return response.model_dump(mode="json", by_alias=True, exclude_unset=True)
 
 
-def _resource_path(kind: str, *segments: str) -> str:
-    encoded = "/".join(
-        quote(validate_identifier(segment, "identifier"), safe=":") for segment in segments
-    )
-    return f"{PREFIX}/{kind}/{encoded}" if encoded else f"{PREFIX}/{kind}"
-
-
-def _sandbox_path(krn_id: str, *suffix: str) -> str:
-    return _resource_path("sandboxes", krn_id, *suffix)
+def _present(**values: Any) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if value is not None}
 
 
 def list_sandboxes(
@@ -462,7 +411,7 @@ def list_sandboxes(
     limit: int | None = None,
     offset: int | None = None,
 ) -> dict[str, Any]:
-    params = validate_pagination(limit=limit, offset=offset)
+    params: dict[str, Any] = validate_pagination(limit=limit, offset=offset)
     if status is not None:
         if status not in _SANDBOX_STATUSES:
             raise ValueError("status must be a VM Sandbox lifecycle status")
@@ -473,13 +422,14 @@ def list_sandboxes(
         if any(unicodedata.category(char) == "Cc" for char in name):
             raise ValueError("name filter must not contain control characters")
         params["name"] = name
-    return _request(client, "get", f"{PREFIX}/sandboxes", x_region=x_region, params=params)
+    region = require_region(x_region)
+    return _dump(_sandbox_api(client).sandboxes.list(x_region=region, **params))
 
 
-def retrieve_sandbox(
-    client: KrutrimClient, *, krn_id: str, x_region: str
-) -> dict[str, Any]:
-    return _request(client, "get", _sandbox_path(krn_id), x_region=x_region)
+def retrieve_sandbox(client: KrutrimClient, *, krn_id: str, x_region: str) -> dict[str, Any]:
+    krn = validate_identifier(krn_id, "krn_id")
+    region = require_region(x_region)
+    return _dump(_sandbox_api(client).sandboxes.retrieve(krn_id=krn, x_region=region))
 
 
 def create_sandbox(
@@ -504,29 +454,39 @@ def create_sandbox(
     encoded_env = validate_env(env, reserved_prefixes=("KRUTRIM_", "SPACE_"))
     policy = validate_network(network)
     key = validate_idempotency_key(idempotency_key)
-    body: dict[str, Any] = {
-        "name": checked_name,
-        "flavor": _selectable_flavor_name(client, x_region=x_region, flavor=flavor),
-    }
-    if checked_template is not None:
-        body["template"] = checked_template
-    if checked_image is not None:
-        body["image"] = checked_image
-    if checked_ttl is not None:
-        body["ttl_seconds"] = checked_ttl
-    if encoded_env is not None:
-        body["env"] = encoded_env
-    if policy is not None:
-        body["network"] = policy
-    return _request(
-        client,
-        "post",
-        f"{PREFIX}/sandboxes",
-        x_region=x_region,
-        json_body=body,
-        idempotency_key=key,
-        send_idempotency=True,
+    region = require_region(x_region)
+    checked_flavor = _selectable_flavor_name(client, x_region=region, flavor=flavor)
+    return _dump(
+        _sandbox_api(client).sandboxes.create(
+            x_region=region,
+            name=checked_name,
+            flavor=checked_flavor,
+            idempotency_key=key,
+            **_present(
+                template=checked_template,
+                image=checked_image,
+                ttl_seconds=checked_ttl,
+                env=encoded_env,
+                network=policy,
+            ),
+        )
     )
+
+
+def _lifecycle(
+    client: KrutrimClient,
+    action: str,
+    *,
+    krn_id: str,
+    x_region: str,
+    idempotency_key: str | None,
+    **extra: Any,
+) -> dict[str, Any]:
+    krn = validate_identifier(krn_id, "krn_id")
+    key = validate_idempotency_key(idempotency_key)
+    region = require_region(x_region)
+    method = getattr(_sandbox_api(client).sandboxes, action)
+    return _dump(method(krn_id=krn, x_region=region, idempotency_key=key, **extra))
 
 
 def delete_sandbox(
@@ -536,14 +496,8 @@ def delete_sandbox(
     x_region: str,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    return _request(
-        client,
-        "delete",
-        _sandbox_path(krn_id),
-        x_region=x_region,
-        json_body={},
-        idempotency_key=validate_idempotency_key(idempotency_key),
-        send_idempotency=True,
+    return _lifecycle(
+        client, "delete", krn_id=krn_id, x_region=x_region, idempotency_key=idempotency_key
     )
 
 
@@ -554,14 +508,8 @@ def start_sandbox(
     x_region: str,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    return _request(
-        client,
-        "post",
-        _sandbox_path(krn_id, "start"),
-        x_region=x_region,
-        json_body={},
-        idempotency_key=validate_idempotency_key(idempotency_key),
-        send_idempotency=True,
+    return _lifecycle(
+        client, "start", krn_id=krn_id, x_region=x_region, idempotency_key=idempotency_key
     )
 
 
@@ -572,14 +520,8 @@ def stop_sandbox(
     x_region: str,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    return _request(
-        client,
-        "post",
-        _sandbox_path(krn_id, "stop"),
-        x_region=x_region,
-        json_body={},
-        idempotency_key=validate_idempotency_key(idempotency_key),
-        send_idempotency=True,
+    return _lifecycle(
+        client, "stop", krn_id=krn_id, x_region=x_region, idempotency_key=idempotency_key
     )
 
 
@@ -591,14 +533,13 @@ def extend_sandbox(
     ttl_seconds: int,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    return _request(
+    return _lifecycle(
         client,
-        "post",
-        _sandbox_path(krn_id, "extend"),
+        "extend",
+        krn_id=krn_id,
         x_region=x_region,
-        json_body={"ttl_seconds": validate_ttl(ttl_seconds)},
-        idempotency_key=validate_idempotency_key(idempotency_key),
-        send_idempotency=True,
+        idempotency_key=idempotency_key,
+        ttl_seconds=validate_ttl(ttl_seconds),
     )
 
 
@@ -610,21 +551,21 @@ def resize_sandbox(
     flavor: str,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    return _request(
+    region = require_region(x_region)
+    return _lifecycle(
         client,
-        "post",
-        _sandbox_path(krn_id, "resize"),
-        x_region=x_region,
-        json_body={"flavor": _selectable_flavor_name(client, x_region=x_region, flavor=flavor)},
-        idempotency_key=validate_idempotency_key(idempotency_key),
-        send_idempotency=True,
+        "resize",
+        krn_id=krn_id,
+        x_region=region,
+        idempotency_key=idempotency_key,
+        flavor=_selectable_flavor_name(client, x_region=region, flavor=flavor),
     )
 
 
-def sandbox_usage(
-    client: KrutrimClient, *, krn_id: str, x_region: str
-) -> dict[str, Any]:
-    return _request(client, "get", _sandbox_path(krn_id, "usage"), x_region=x_region)
+def sandbox_usage(client: KrutrimClient, *, krn_id: str, x_region: str) -> dict[str, Any]:
+    krn = validate_identifier(krn_id, "krn_id")
+    region = require_region(x_region)
+    return _dump(_sandbox_api(client).sandboxes.usage(krn_id=krn, x_region=region))
 
 
 def exec_sandbox(
@@ -640,26 +581,23 @@ def exec_sandbox(
     timeout_seconds: int | None = None,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    body: dict[str, Any] = {"cmd": validate_cmd(cmd)}
-    if cwd is not None:
-        body["cwd"] = validate_guest_path(cwd, "cwd")
-    encoded_env = validate_env(env)
-    if encoded_env is not None:
-        body["env"] = encoded_env
-    if stdin is not None:
-        body["stdin"] = validate_stdin(stdin)
-    if user is not None:
-        body["user"] = validate_user(user)
-    if timeout_seconds is not None:
-        body["timeout_seconds"] = validate_timeout(timeout_seconds, maximum=120)
-    return _request(
-        client,
-        "post",
-        _sandbox_path(krn_id, "exec"),
-        x_region=x_region,
-        json_body=body,
-        idempotency_key=validate_idempotency_key(idempotency_key),
-        send_idempotency=True,
+    krn = validate_identifier(krn_id, "krn_id")
+    body = _present(
+        cwd=validate_guest_path(cwd, "cwd") if cwd is not None else None,
+        env=validate_env(env),
+        stdin=validate_stdin(stdin) if stdin is not None else None,
+        user=validate_user(user) if user is not None else None,
+        timeout_seconds=(
+            validate_timeout(timeout_seconds, maximum=120) if timeout_seconds is not None else None
+        ),
+    )
+    checked_cmd = validate_cmd(cmd)
+    key = validate_idempotency_key(idempotency_key)
+    region = require_region(x_region)
+    return _dump(
+        _sandbox_api(client).sandboxes.exec(
+            krn_id=krn, x_region=region, cmd=checked_cmd, idempotency_key=key, **body
+        )
     )
 
 
@@ -675,24 +613,24 @@ def create_command(
     timeout_seconds: int | None = None,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    body: dict[str, Any] = {"cmd": validate_cmd(cmd)}
-    if cwd is not None:
-        body["cwd"] = validate_guest_path(cwd, "cwd")
-    encoded_env = validate_env(env, reserved_prefixes=("KRUTRIM_",))
-    if encoded_env is not None:
-        body["env"] = encoded_env
-    if user is not None:
-        body["user"] = validate_user(user)
-    if timeout_seconds is not None:
-        body["timeout_seconds"] = validate_timeout(timeout_seconds, maximum=604800)
-    return _request(
-        client,
-        "post",
-        _sandbox_path(krn_id, "commands"),
-        x_region=x_region,
-        json_body=body,
-        idempotency_key=validate_idempotency_key(idempotency_key),
-        send_idempotency=True,
+    krn = validate_identifier(krn_id, "krn_id")
+    body = _present(
+        cwd=validate_guest_path(cwd, "cwd") if cwd is not None else None,
+        env=validate_env(env, reserved_prefixes=("KRUTRIM_",)),
+        user=validate_user(user) if user is not None else None,
+        timeout_seconds=(
+            validate_timeout(timeout_seconds, maximum=604800)
+            if timeout_seconds is not None
+            else None
+        ),
+    )
+    checked_cmd = validate_cmd(cmd)
+    key = validate_idempotency_key(idempotency_key)
+    region = require_region(x_region)
+    return _dump(
+        _sandbox_api(client).commands.create(
+            krn_id=krn, x_region=region, cmd=checked_cmd, idempotency_key=key, **body
+        )
     )
 
 
@@ -704,13 +642,10 @@ def list_commands(
     limit: int | None = None,
     offset: int | None = None,
 ) -> dict[str, Any]:
-    return _request(
-        client,
-        "get",
-        _sandbox_path(krn_id, "commands"),
-        x_region=x_region,
-        params=validate_pagination(limit=limit, offset=offset),
-    )
+    krn = validate_identifier(krn_id, "krn_id")
+    page = validate_pagination(limit=limit, offset=offset)
+    region = require_region(x_region)
+    return _dump(_sandbox_api(client).commands.list(krn_id=krn, x_region=region, **page))
 
 
 def retrieve_command(
@@ -723,16 +658,16 @@ def retrieve_command(
     stderr_offset: int | None = None,
     max_bytes: int | None = None,
 ) -> dict[str, Any]:
-    return _request(
-        client,
-        "get",
-        _sandbox_path(krn_id, "commands", validate_identifier(command_id, "command_id")),
-        x_region=x_region,
-        params=validate_log_window(
-            stdout_offset=stdout_offset,
-            stderr_offset=stderr_offset,
-            max_bytes=max_bytes,
-        ),
+    krn = validate_identifier(krn_id, "krn_id")
+    command = validate_identifier(command_id, "command_id")
+    window = validate_log_window(
+        stdout_offset=stdout_offset, stderr_offset=stderr_offset, max_bytes=max_bytes
+    )
+    region = require_region(x_region)
+    return _dump(
+        _sandbox_api(client).commands.retrieve(
+            krn_id=krn, command_id=command, x_region=region, **window
+        )
     )
 
 
@@ -744,19 +679,14 @@ def kill_command(
     x_region: str,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    return _request(
-        client,
-        "post",
-        _sandbox_path(
-            krn_id,
-            "commands",
-            validate_identifier(command_id, "command_id"),
-            "kill",
-        ),
-        x_region=x_region,
-        json_body={},
-        idempotency_key=validate_idempotency_key(idempotency_key),
-        send_idempotency=True,
+    krn = validate_identifier(krn_id, "krn_id")
+    command = validate_identifier(command_id, "command_id")
+    key = validate_idempotency_key(idempotency_key)
+    region = require_region(x_region)
+    return _dump(
+        _sandbox_api(client).commands.kill(
+            krn_id=krn, command_id=command, x_region=region, idempotency_key=key
+        )
     )
 
 
@@ -767,13 +697,9 @@ def list_flavors(
     limit: int | None = None,
     offset: int | None = None,
 ) -> dict[str, Any]:
-    return _request(
-        client,
-        "get",
-        f"{PREFIX}/flavors",
-        x_region=x_region,
-        params=validate_pagination(limit=limit, offset=offset),
-    )
+    page = validate_pagination(limit=limit, offset=offset)
+    region = require_region(x_region)
+    return _dump(_sandbox_api(client).flavors.list(x_region=region, **page))
 
 
 def list_templates(
@@ -783,23 +709,16 @@ def list_templates(
     limit: int | None = None,
     offset: int | None = None,
 ) -> dict[str, Any]:
-    return _request(
-        client,
-        "get",
-        f"{PREFIX}/templates",
-        x_region=x_region,
-        params=validate_pagination(limit=limit, offset=offset),
-    )
+    page = validate_pagination(limit=limit, offset=offset)
+    region = require_region(x_region)
+    return _dump(_sandbox_api(client).templates.list(x_region=region, **page))
 
 
-def retrieve_template(
-    client: KrutrimClient, *, template_id: str, x_region: str
-) -> dict[str, Any]:
-    return _request(
-        client,
-        "get",
-        _resource_path("templates", validate_identifier(template_id, "template_id")),
-        x_region=x_region,
+def retrieve_template(client: KrutrimClient, *, template_id: str, x_region: str) -> dict[str, Any]:
+    template = validate_identifier(template_id, "template_id")
+    region = require_region(x_region)
+    return _dump(
+        _sandbox_api(client).templates.retrieve(template_id=template, x_region=region)
     )
 
 
@@ -812,22 +731,20 @@ def create_template(
     description: str | None = None,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    body: dict[str, Any] = {
-        "name": validate_template_name(name),
-        "image": validate_image(image),
-    }
-    if description is not None:
-        body["description"] = validate_description(description)
+    checked_name = validate_template_name(name)
+    checked_image = validate_image(image)
+    checked_description = validate_description(description) if description is not None else None
     key = validate_idempotency_key(idempotency_key)
-    _require_template_capacity(client, x_region=x_region)
-    return _request(
-        client,
-        "post",
-        f"{PREFIX}/templates",
-        x_region=x_region,
-        json_body=body,
-        idempotency_key=key,
-        send_idempotency=True,
+    region = require_region(x_region)
+    _require_template_capacity(client, x_region=region)
+    return _dump(
+        _sandbox_api(client).templates.create(
+            x_region=region,
+            name=checked_name,
+            image=checked_image,
+            idempotency_key=key,
+            **_present(description=checked_description),
+        )
     )
 
 
@@ -839,29 +756,25 @@ def delete_template(
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     checked = validate_identifier(template_id, "template_id")
+    key = validate_idempotency_key(idempotency_key)
     current = retrieve_template(client, template_id=checked, x_region=x_region)
     details = current.get("details")
     if isinstance(details, dict) and details.get("default_template") is True:
         raise ValueError("platform VM Sandbox templates cannot be deleted")
-    return _request(
-        client,
-        "delete",
-        _resource_path("templates", checked),
-        x_region=x_region,
-        json_body={},
-        idempotency_key=validate_idempotency_key(idempotency_key),
-        send_idempotency=True,
+    return _dump(
+        _sandbox_api(client).templates.delete(
+            template_id=checked, x_region=require_region(x_region), idempotency_key=key
+        )
     )
 
 
 def retrieve_operation(
     client: KrutrimClient, *, operation_id: str, x_region: str
 ) -> dict[str, Any]:
-    return _request(
-        client,
-        "get",
-        _resource_path("operations", validate_identifier(operation_id, "operation_id")),
-        x_region=x_region,
+    operation = validate_identifier(operation_id, "operation_id")
+    region = require_region(x_region)
+    return _dump(
+        _sandbox_api(client).operations.retrieve(operation_id=operation, x_region=region)
     )
 
 
@@ -914,10 +827,10 @@ def wait_operation(
         time.sleep(min(interval, remaining))
 
 
-def retrieve_network(
-    client: KrutrimClient, *, krn_id: str, x_region: str
-) -> dict[str, Any]:
-    return _request(client, "get", _sandbox_path(krn_id, "network"), x_region=x_region)
+def retrieve_network(client: KrutrimClient, *, krn_id: str, x_region: str) -> dict[str, Any]:
+    krn = validate_identifier(krn_id, "krn_id")
+    region = require_region(x_region)
+    return _dump(_sandbox_api(client).network.retrieve(krn_id=krn, x_region=region))
 
 
 def update_network(
@@ -928,18 +841,23 @@ def update_network(
     network: dict[str, Any],
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    krn = validate_identifier(krn_id, "krn_id")
     policy = validate_network(network)
     if policy is None:
         raise ValueError("network egress policy is required")
-    return _request(
-        client,
-        "put",
-        _sandbox_path(krn_id, "network"),
-        x_region=x_region,
-        json_body=policy,
-        idempotency_key=validate_idempotency_key(idempotency_key),
-        send_idempotency=True,
+    key = validate_idempotency_key(idempotency_key)
+    region = require_region(x_region)
+    return _dump(
+        _sandbox_api(client).network.update(
+            krn_id=krn, x_region=region, network=policy, idempotency_key=key
+        )
     )
+
+
+def _checked_port(port: object) -> int:
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("port must be an integer from 1 to 65535")
+    return port
 
 
 def expose_port(
@@ -951,18 +869,20 @@ def expose_port(
     access: str,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    if type(port) is not int or not 1 <= port <= 65535:
-        raise ValueError("port must be an integer from 1 to 65535")
+    krn = validate_identifier(krn_id, "krn_id")
+    checked_port = _checked_port(port)
     if access not in {"token", "private"}:
         raise ValueError("access must be token or private")
-    return _request(
-        client,
-        "post",
-        _sandbox_path(krn_id, "ports"),
-        x_region=x_region,
-        json_body={"port": port, "access": access},
-        idempotency_key=validate_idempotency_key(idempotency_key),
-        send_idempotency=True,
+    key = validate_idempotency_key(idempotency_key)
+    region = require_region(x_region)
+    return _dump(
+        _sandbox_api(client).ports.expose(
+            krn_id=krn,
+            x_region=region,
+            port=checked_port,
+            access=access,
+            idempotency_key=key,
+        )
     )
 
 
@@ -974,13 +894,10 @@ def list_ports(
     limit: int | None = None,
     offset: int | None = None,
 ) -> dict[str, Any]:
-    return _request(
-        client,
-        "get",
-        _sandbox_path(krn_id, "ports"),
-        x_region=x_region,
-        params=validate_pagination(limit=limit, offset=offset),
-    )
+    krn = validate_identifier(krn_id, "krn_id")
+    page = validate_pagination(limit=limit, offset=offset)
+    region = require_region(x_region)
+    return _dump(_sandbox_api(client).ports.list(krn_id=krn, x_region=region, **page))
 
 
 def close_port(
@@ -991,16 +908,14 @@ def close_port(
     port: int,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    if type(port) is not int or not 1 <= port <= 65535:
-        raise ValueError("port must be an integer from 1 to 65535")
-    return _request(
-        client,
-        "delete",
-        f"{_sandbox_path(krn_id, 'ports')}/{port}",
-        x_region=x_region,
-        json_body={},
-        idempotency_key=validate_idempotency_key(idempotency_key),
-        send_idempotency=True,
+    krn = validate_identifier(krn_id, "krn_id")
+    checked_port = _checked_port(port)
+    key = validate_idempotency_key(idempotency_key)
+    region = require_region(x_region)
+    return _dump(
+        _sandbox_api(client).ports.close(
+            krn_id=krn, port=checked_port, x_region=region, idempotency_key=key
+        )
     )
 
 
@@ -1012,15 +927,15 @@ def upload_file(
     path: str,
     content: str,
 ) -> dict[str, Any]:
-    """PUT raw bytes. Parent directories must already exist. Retries stay off."""
-    return _request(
-        client,
-        "put",
-        _sandbox_path(krn_id, "files"),
-        x_region=x_region,
-        content=validate_text_file(content),
-        params={"path": validate_guest_path(path)},
-        extra_headers={"Content-Type": "application/octet-stream"},
+    """Write raw bytes. Parent directories must already exist. Never retried."""
+    krn = validate_identifier(krn_id, "krn_id")
+    checked_path = validate_guest_path(path)
+    data = validate_text_file(content)
+    region = require_region(x_region)
+    return _dump(
+        _sandbox_api(client).files.upload(
+            krn_id=krn, x_region=region, content=data, path=checked_path
+        )
     )
 
 
@@ -1031,38 +946,19 @@ def download_file(
     x_region: str,
     path: str,
 ) -> dict[str, Any]:
+    krn = validate_identifier(krn_id, "krn_id")
     checked = validate_guest_path(path)
     region = require_region(x_region)
-    options = {
-        "headers": {"x-region": region},
-        "params": {"path": checked},
-        "max_retries": 0,
-    }
-    response = client.with_options(max_retries=0).get(
-        _sandbox_path(krn_id, "files"),
-        cast_to=httpx.Response,
-        options=options,
-    )
-    if response.status_code >= 400:
-        raise ValueError(
-            f"VM Sandbox file request failed (HTTP {response.status_code}); "
-            "response omitted to protect file content"
-        )
-    text = decode_text_file(response.content)
-    return {"path": checked, "content": text, "size_bytes": len(response.content)}
+    response = _sandbox_api(client).files.download(krn_id=krn, x_region=region, path=checked)
+    content = response.read()
+    return {"path": checked, "content": decode_text_file(content), "size_bytes": len(content)}
 
 
-def create_terminal_ticket(
-    client: KrutrimClient, *, krn_id: str, x_region: str
-) -> dict[str, Any]:
-    """Mint a one-use terminal ticket. No idempotency key; retries stay off."""
-    return _request(
-        client,
-        "post",
-        _sandbox_path(krn_id, "terminal", "ticket"),
-        x_region=x_region,
-        json_body={},
-    )
+def create_terminal_ticket(client: KrutrimClient, *, krn_id: str, x_region: str) -> dict[str, Any]:
+    """Mint a one-use terminal ticket. Never retried and never sent with an idempotency key."""
+    krn = validate_identifier(krn_id, "krn_id")
+    region = require_region(x_region)
+    return _dump(_sandbox_api(client).terminal.create_ticket(krn_id=krn, x_region=region))
 
 
 def _catalog_items(

@@ -679,7 +679,7 @@ wheels = [
 
 [[package]]
 name = "krutrim-client"
-version = "0.8.8"
+version = "0.8.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -689,9 +689,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/17/3c/884165bf9441af2f9386d57d74f9bddeec382326eb44794d24262757727a/krutrim_client-0.8.8.tar.gz", hash = "sha256:d354d84e3a6e4961e9d593b3debc9f5d81cf09647598dd2d82c29336b28ec738", size = 236919, upload-time = "2026-10-26T07:09:28.212Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1d/b3/06855a8b65ca4caced452da173b3d862651e1f0ad612fff7508e7e68416d/krutrim_client-0.8.9.tar.gz", hash = "sha256:c3ed7b5196c485aedc6838077796d4d1ebedf6db1c9bcc51a9d612eaf71c0cd0", size = 262760, upload-time = "2026-11-13T08:13:23.338Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/e0/8708fe80824d40518107fb1a510e107264f68b099b9d1f596aed4ad94207/krutrim_client-0.8.8-py3-none-any.whl", hash = "sha256:456ae1ddb866f2c02f8dbbb5b86585bb7ec758cd433bb82cbf1d6ac85dbc7d4a", size = 248933, upload-time = "2026-10-26T07:09:26.478Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/96/ea9be3a1197569eb1db791577e9d0b8e101f2e757b0ceb00613c136b944f/krutrim_client-0.8.9-py3-none-any.whl", hash = "sha256:ae77e6da451d58d7590666bb79f9e74bc6a929bca7fd5fa93946d580a4fd907e", size = 273155, upload-time = "2026-11-13T08:13:21.551Z" },
 ]
 
 [[package]]
@@ -726,7 +726,7 @@ requires-dist = [
     { name = "cyclonedx-bom", marker = "extra == 'release'", specifier = ">=7.3,<8" },
     { name = "hatchling", marker = "extra == 'release'", specifier = ">=1.26,<1.32" },
     { name = "httpx", specifier = ">=0.28,<0.29" },
-    { name = "krutrim-client", specifier = ">=0.8.8,<0.9" },
+    { name = "krutrim-client", specifier = ">=0.8.9,<0.9" },
     { name = "mcp", specifier = ">=1.28.1,<2" },
     { name = "pip-audit", marker = "extra == 'release'", specifier = ">=2.10,<3" },
     { name = "pydantic", specifier = ">=2.12.0,<3" },

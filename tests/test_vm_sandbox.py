@@ -11,10 +11,10 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.server import Settings as FastMCPSettings
 
-from krutrim_mcp_server.adapters import vm_sandbox as adapter
 from krutrim_mcp_server.config import Settings
 from krutrim_mcp_server.server import create_server
 from krutrim_mcp_server.tools.sandbox import lifecycle as sandbox_lifecycle
+from krutrim_mcp_server.tools.vm_sandbox import _service as adapter
 
 FastMCPSettings.model_rebuild()
 
@@ -1017,6 +1017,38 @@ def test_not_found_and_conflict_show_the_api_message(harness, status, message):
     assert f"HTTP {status}" in text
     assert message in text
     assert "withheld" not in text
+
+
+def test_outputs_keep_the_service_envelope_shape(harness):
+    body = {
+        "code": "ok",
+        "message": "accepted",
+        "details": {
+            "id": "op-9",
+            "state": "running",
+            "type": "resize",
+            "resize": {
+                "from": {"flavor": "a", "vcpus": 1, "mem_mib": 2048},
+                "to": {"flavor": "b", "vcpus": 2, "mem_mib": 4096},
+                "running": True,
+            },
+            "new_field": {"kept": 1},
+        },
+    }
+    harness.replies[("GET", f"{PREFIX}/operations/op-9")] = (200, body)
+    result = harness.call("get_vm_sandbox_operation", operation_id="op-9", region=REGION)
+    assert result.data == body
+
+
+def test_unparseable_success_body_is_withheld(harness):
+    harness.replies[("GET", f"{PREFIX}/sandboxes/{KRN}")] = httpx.Response(
+        200,
+        content=b"not json secret-body",
+        headers={"content-type": "text/plain"},
+    )
+    with pytest.raises(ToolError, match="unexpected response") as error:
+        harness.call("describe_vm_sandbox", krn_id=KRN, region=REGION)
+    assert "secret-body" not in str(error.value)
 
 
 def test_server_error_bodies_are_withheld(harness):

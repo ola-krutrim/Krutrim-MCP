@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
-from krutrim_client import APIError
+from krutrim_client import APIError, APIResponseValidationError
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
 from krutrim_mcp_server.logging_utils import redact_known_secrets
@@ -76,6 +76,10 @@ def run_vm_tool(fn: Callable[[], Any], secrets: tuple[str, ...] = ()) -> ToolSuc
     def protected() -> ToolSuccess:
         try:
             payload = fn()
+        except APIResponseValidationError:
+            raise ValueError(
+                "VM Sandbox returned an unexpected response; details withheld"
+            ) from None
         except APIError as exc:
             status = getattr(exc, "status_code", None)
             detail = f"HTTP {status}" if status is not None else type(exc).__name__
