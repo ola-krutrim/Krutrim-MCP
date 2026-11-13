@@ -43,6 +43,7 @@ release = [
   "twine>=6,<7",
   "pip-audit>=2.10,<3",
   "cyclonedx-bom>=7.3,<8",
+  "check-wheel-contents>=0.6,<1",
 ]
 
 [project.urls]
@@ -85,6 +86,10 @@ include = [
 exclude = [
   "/tests",
 ]
+
+[tool.check-wheel-contents]
+# The legal files are intentionally force-included at the wheel root.
+ignore = ["W002", "W003", "W009"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
