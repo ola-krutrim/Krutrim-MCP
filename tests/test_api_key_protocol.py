@@ -29,7 +29,7 @@ def isolated_credentials(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", [200, 401, 403])
-@pytest.mark.parametrize("tool", ["list_sandbox_templates", "list_iam_roles"])
+@pytest.mark.parametrize("tool", ["list_iam_roles"])
 @pytest.mark.parametrize("inherited_tokens", [False, True])
 async def test_configured_key_reaches_sdk_through_mcp(
     monkeypatch, status, tool, inherited_tokens,
@@ -63,7 +63,7 @@ async def test_configured_key_reaches_sdk_through_mcp(
     try:
         async with create_connected_server_and_client_session(server._mcp_server) as protocol:
             tools = await protocol.list_tools()
-            assert len(tools.tools) == 216
+            assert len(tools.tools) == 194
             assert requests == []
             ping = await protocol.call_tool("krutrim_ping", {})
             assert ping.isError is False
@@ -98,7 +98,12 @@ async def test_api_key_does_not_bypass_mutation_guards(monkeypatch, read_only, c
     server = create_server()
     async with create_connected_server_and_client_session(server._mcp_server) as protocol:
         result = await protocol.call_tool(
-            "delete_sandbox", {"sandbox_id": "sandbox-1", "confirm": confirm},
+            "delete_vm_sandbox",
+            {
+                "krn_id": "krn:vm-sandbox:In-Hyderabad-1:acct:cust:demo",
+                "region": "In-Hyderabad-1",
+                "confirm": confirm,
+            },
         )
         assert result.isError is True
         assert ("READ_ONLY" if read_only else "confirm=true") in result.content[0].text

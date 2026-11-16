@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.0.15 — 2026-11-16
+
+- Removed the Sandbox tools. Use the VM Sandbox tools instead. They are available
+  only in `In-Hyderabad-1`.
+
+  | Removed | Use instead |
+  | --- | --- |
+  | `list_sandboxes`, `describe_sandbox` | `list_vm_sandboxes`, `describe_vm_sandbox` |
+  | `create_sandbox`, `delete_sandbox` | `create_vm_sandbox`, `delete_vm_sandbox` |
+  | `list_sandbox_flavors`, `list_sandbox_templates` | `list_vm_sandbox_flavors`, `list_vm_sandbox_templates` |
+  | `set_sandbox_ttl` | `extend_vm_sandbox_ttl` (adds time; cannot turn expiry off) |
+  | `set_sandbox_flavor` | `resize_vm_sandbox` |
+  | `update_sandbox_network_policy`, `patch_sandbox_network_policy` | `get_vm_sandbox_network`, `update_vm_sandbox_network` (replaces the whole policy) |
+  | `run_sandbox_command` | `exec_vm_sandbox`, `create_vm_sandbox_command` |
+  | `open_sandbox_port`, `close_sandbox_port`, `list_sandbox_ports` | `expose_vm_sandbox_port`, `close_vm_sandbox_port`, `list_vm_sandbox_ports` |
+  | `read_sandbox_file`, `write_sandbox_file` | `read_vm_sandbox_file`, `write_vm_sandbox_file` |
+
+- No VM Sandbox tool replaces `sandbox_proxy_request`, `list_sandbox_files`,
+  `stat_sandbox_file`, `delete_sandbox_file`, `move_sandbox_file`, or
+  `make_sandbox_directory`. Run commands with `exec_vm_sandbox` instead. Labels,
+  network storage attachments, and `image_uri` are also gone; pass a template or
+  `image` to `create_vm_sandbox`.
+- Poll create, delete, start, stop, resize, template build, and network update with
+  `wait_vm_sandbox_operation`.
+- Requires `krutrim-client` 0.8.9 or later.
+
 ## 1.0.14 — 2026-11-12
 
 - Added VM Sandbox tools for sandboxes, flavors, templates, operations, network
