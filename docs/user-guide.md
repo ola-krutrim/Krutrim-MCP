@@ -2,7 +2,7 @@
 
 ## Before you begin
 
-These instructions describe **version 1.0.14** and its API-key-only configuration.
+These instructions describe **version 1.0.15** and its API-key-only configuration.
 Install the release when available on PyPI, or install this checkout during
 release preparation. See [installation](../README.md#install) and
 [client configuration](../README.md#connect-locally).
@@ -66,38 +66,12 @@ one.
 | Create a VM | `list_vpcs`, `list_subnets`, and `list_compute_flavors` |
 | Allocate a floating IP | `describe_vpc`, then `create_floating_ip` |
 | Create a KPod | `list_kpod_flavors` and `list_kpod_templates` |
-| Create a Sandbox | `list_sandbox_flavors` (custom image: follow [BYOC](https://docs.cloud.olakrutrim.com/basics/core-infrastructure/sandbox/bring-your-own-container-byoc) first) |
 | Create a VM Sandbox | `list_vm_sandbox_flavors` and `list_vm_sandbox_templates` in `In-Hyderabad-1` |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
 | Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
 | Manage load balancers | `list_load_balancers`, `list_target_groups`, and `get_load_balancer_payload` |
 | Manage certificates | `list_certificates` and `get_expiring_certificates` |
 | Import a VM image | `upload_image_s3` (HTTP(S) or pre-signed S3 URL) |
-
-**Sandbox availability:** `list_sandbox_flavors` shows backend-reported availability
-and flavor status when present, alongside names, resources, and pricing. These
-values are a live snapshot, not a capacity reservation. Missing availability means
-unknown. Creation rechecks the selected flavor's active status before submitting.
-
-**Expiry (TTL):** Specify how long the sandbox should remain active. If not
-specified, the default is **one hour (3600 seconds)**. Supported duration:
-**1 minute to 7 days (60–604800 seconds)**. Review this expiry before confirming
-creation.
-
-For `create_sandbox`, `ttl_seconds` is optional. Omit it (or pass `null`) to
-leave `ttlSeconds` out of the request and let the backend apply its one-hour
-default. To choose a different duration, supply an integer number of seconds.
-`set_sandbox_ttl` requires an explicit value within the same supported range, or `0`
-to disable expiry. A Sandbox with no expiry keeps billing until you delete it.
-
-`update_sandbox_network_policy` replaces a Sandbox's whole network policy (omitted
-allowlists are cleared). `patch_sandbox_network_policy` changes only the fields you
-pass and can add or remove outbound domains. Both need an active Sandbox, and the
-response reports `enforcement_status`.
-
-`set_sandbox_flavor` resizes a running Sandbox to another active flavor without a
-restart (CPU and memory only; processes and files are kept, and GPU changes are
-rejected). Choose the flavor from `list_sandbox_flavors`.
 
 ## VM Sandbox
 

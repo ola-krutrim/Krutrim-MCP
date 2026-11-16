@@ -46,7 +46,7 @@ versions and files are immutable.
 - [ ] The required `pip-audit` gate reports no known runtime vulnerabilities.
 - [ ] The release workflow produces a validated CycloneDX runtime SBOM.
 - [ ] Live smoke tests pass for the supported Phase 1 resource lifecycles and
-      the new Sandbox lifecycle, commands, files, ports, and proxy tools in an
+      the VM Sandbox lifecycle, commands, files, and ports tools in an
       explicitly approved test account. Clean up test resources afterward.
 - [ ] README, user guide, and changelog describe the shipped authentication and
       tool behavior.

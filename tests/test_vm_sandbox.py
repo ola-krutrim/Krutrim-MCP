@@ -13,7 +13,6 @@ from mcp.server.fastmcp.server import Settings as FastMCPSettings
 
 from krutrim_mcp_server.config import Settings
 from krutrim_mcp_server.server import create_server
-from krutrim_mcp_server.tools.sandbox import lifecycle as sandbox_lifecycle
 from krutrim_mcp_server.tools.vm_sandbox import _service as adapter
 
 FastMCPSettings.model_rebuild()
@@ -232,19 +231,37 @@ def test_egress_destinations_reject_urls_ports_and_ipv6(destination):
         adapter.validate_destination(destination)
 
 
-def test_vm_sandbox_catalog_is_separate_from_sandbox(harness):
+def test_vm_sandbox_catalog(harness):
     assert {harness.tool(name).name for name in VM_TOOLS} == VM_TOOLS
-    assert sandbox_lifecycle._TEMPLATE_PATH == "/omni/sandbox/v1/template"
-    for name in (
-        "list_sandboxes",
-        "create_sandbox",
-        "run_sandbox_command",
-        "open_sandbox_port",
-    ):
-        assert harness.tool(name) is None
 
 
-def test_server_registers_vm_sandbox_without_removing_sandbox_tools():
+REMOVED_TOOLS = {
+    "list_sandboxes",
+    "describe_sandbox",
+    "create_sandbox",
+    "delete_sandbox",
+    "set_sandbox_ttl",
+    "set_sandbox_flavor",
+    "list_sandbox_flavors",
+    "list_sandbox_templates",
+    "update_sandbox_network_policy",
+    "patch_sandbox_network_policy",
+    "run_sandbox_command",
+    "open_sandbox_port",
+    "close_sandbox_port",
+    "list_sandbox_ports",
+    "sandbox_proxy_request",
+    "list_sandbox_files",
+    "stat_sandbox_file",
+    "read_sandbox_file",
+    "write_sandbox_file",
+    "make_sandbox_directory",
+    "move_sandbox_file",
+    "delete_sandbox_file",
+}
+
+
+def test_server_registers_only_vm_sandbox_tools():
     server = create_server(
         Settings(
             api_key="test-api-key-for-offline-tests",
@@ -257,13 +274,9 @@ def test_server_registers_vm_sandbox_without_removing_sandbox_tools():
     )
     names = {tool.name for tool in server._tool_manager.list_tools()}
     assert VM_TOOLS <= names
-    assert {
-        "list_sandboxes",
-        "create_sandbox",
-        "run_sandbox_command",
-        "list_sandbox_flavors",
-    } <= names
-    assert len(names) == 216
+    assert not REMOVED_TOOLS & names
+    assert {name for name in names if "sandbox" in name} == VM_TOOLS
+    assert len(names) == 194
     assert "VM Sandbox is only available in In-Hyderabad-1" in server.instructions
     assert "separate product" not in server.instructions
     create = server._tool_manager.get_tool("create_vm_sandbox")
@@ -311,7 +324,6 @@ def test_list_and_describe_use_vm_sandbox_paths(harness):
     assert _header(listing, "x-region") == REGION
     assert "idempotency-key" not in {key.lower() for key in listing.headers}
     assert describe.url.path == f"{PREFIX}/sandboxes/{KRN}"
-    assert all("/omni/sandbox/" not in request.url.path for request in harness.requests)
 
 
 def test_create_checks_the_live_flavor_then_posts_the_console_body(harness):

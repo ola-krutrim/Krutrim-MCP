@@ -1,8 +1,8 @@
 # Krutrim Cloud MCP Server
 
 Use Krutrim Cloud from VS Code, Cursor, Claude Desktop, Claude Code, or Codex.
-The local stdio server provides 216 tools for discovery and controlled operations
-across compute, networking (including load balancers and certificates), storage, Kubernetes, KPods, Sandbox, VM Sandbox, and IAM.
+The local stdio server provides 194 tools for discovery and controlled operations
+across compute, networking (including load balancers and certificates), storage, Kubernetes, KPods, VM Sandbox, and IAM.
 
 ## Install
 
@@ -11,7 +11,7 @@ across compute, networking (including load balancers and certificates), storage,
 Run the pinned package without installing it into your current Python environment:
 
 ```bash
-uvx krutrim-mcp-server@1.0.14 --version
+uvx krutrim-mcp-server@1.0.15 --version
 ```
 
 ### Python virtual environment
@@ -19,7 +19,7 @@ uvx krutrim-mcp-server@1.0.14 --version
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install krutrim-mcp-server==1.0.14
+python -m pip install krutrim-mcp-server==1.0.15
 python -m krutrim_mcp_server --version
 ```
 
@@ -61,7 +61,7 @@ Use `.vscode/mcp.json`; the masked prompt keeps the key out of the file:
     "krutrim-cloud": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["krutrim-mcp-server@1.0.14"],
+      "args": ["krutrim-mcp-server@1.0.15"],
       "env": {
         "KRUTRIM_API_KEY": "${input:krutrim-api-key}"
       }
@@ -87,7 +87,7 @@ Use your client's private MCP configuration:
   "mcpServers": {
     "krutrim-cloud": {
       "command": "uvx",
-      "args": ["krutrim-mcp-server@1.0.14"],
+      "args": ["krutrim-mcp-server@1.0.15"],
       "env": {
         "KRUTRIM_API_KEY": "YOUR_KRUTRIM_API_KEY"
       }
@@ -104,7 +104,7 @@ Add this to your private `~/.codex/config.toml`:
 [mcp_servers.krutrim-cloud]
 enabled = true
 command = "uvx"
-args = ["krutrim-mcp-server@1.0.14"]
+args = ["krutrim-mcp-server@1.0.15"]
 
 [mcp_servers.krutrim-cloud.env]
 KRUTRIM_API_KEY = "YOUR_KRUTRIM_API_KEY"
@@ -122,7 +122,6 @@ List resources, select exact identifiers and a supported region
 ```text
 List my VPCs in In-Bangalore-1.
 List IAM users.
-Show Sandbox flavors and templates before creating a Sandbox.
 Show VM Sandbox flavors in In-Hyderabad-1 before creating a VM Sandbox.
 ```
 
@@ -132,7 +131,6 @@ Show VM Sandbox flavors in In-Hyderabad-1 before creating a VM Sandbox.
 | Create a VM | `list_vpcs`, `list_subnets`, and `list_compute_flavors` |
 | Allocate a floating IP | `describe_vpc`, then `create_floating_ip` |
 | Create a KPod | `list_kpod_flavors` and `list_kpod_templates` |
-| Create a Sandbox | `list_sandbox_flavors` and `list_sandbox_templates` |
 | Create a VM Sandbox | `list_vm_sandbox_flavors` and `list_vm_sandbox_templates` in `In-Hyderabad-1` |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
 | Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
@@ -147,8 +145,8 @@ several minutes to appear in listings.
 With the API key configured privately:
 
 ```bash
-uvx krutrim-mcp-server@1.0.14 --list-tools
-uvx krutrim-mcp-server@1.0.14 --doctor
+uvx krutrim-mcp-server@1.0.15 --list-tools
+uvx krutrim-mcp-server@1.0.15 --doctor
 ```
 
 `--doctor` checks local configuration, not Cloud authentication. Use a read-only
