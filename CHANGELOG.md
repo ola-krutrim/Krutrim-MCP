@@ -4,12 +4,13 @@
 
 - `confirm` must be the boolean `true`. Strings and numbers such as `"true"`,
   `"yes"`, or `1` are now refused on every mutating tool.
-- IAM is read-only. Removed `create_iam_user`, `delete_iam_user`,
+- IAM is read-only for security reasons. Removed `create_iam_user`, `delete_iam_user`,
   `create_iam_group`, `delete_iam_group`, `create_iam_role_with_policies`,
   `delete_iam_role`, `attach_policies_to_role`, `assign_roles_to_user`,
   `enable_programmatic_access`, `disable_programmatic_access`, and
-  `reset_programmatic_access`. Make IAM changes in the Cloud Console. IAM list
-  and get tools are unchanged.
+  `reset_programmatic_access`, because identity and access changes are
+  security-sensitive. Make IAM changes in the Cloud Console. IAM list and get
+  tools are unchanged.
 - Added `attach_asg_to_target_group` and `detach_asg_from_target_group`.
 - Added `get_vm_sandbox_stats` for live CPU, memory, disk, network, and process
   figures of a VM Sandbox.
