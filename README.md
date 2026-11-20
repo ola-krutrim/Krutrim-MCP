@@ -1,8 +1,8 @@
 # Krutrim Cloud MCP Server
 
 Use Krutrim Cloud from VS Code, Cursor, Claude Desktop, Claude Code, or Codex.
-The local stdio server provides 194 tools for discovery and controlled operations
-across compute, networking (including load balancers and certificates), storage, Kubernetes, KPods, VM Sandbox, and IAM.
+The local stdio server provides 186 tools for discovery and controlled operations
+across compute, networking (including load balancers and certificates), storage, Kubernetes, KPods, VM Sandbox, and IAM (read-only).
 
 ## Install
 
@@ -133,10 +133,11 @@ Show VM Sandbox flavors in In-Hyderabad-1 before creating a VM Sandbox.
 | Create a KPod | `list_kpod_flavors` and `list_kpod_templates` |
 | Create a VM Sandbox | `list_vm_sandbox_flavors` and `list_vm_sandbox_templates` in `In-Hyderabad-1` |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
-| Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
+| View IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
 
-Mutations require `confirm=true`. Floating-IP allocation also requires
+Mutations require `confirm=true`, as a boolean. Floating-IP allocation also requires
 `allow_public_ip=true`. Set `KRUTRIM_MCP_READ_ONLY=true` to block mutations.
+IAM is read-only; make IAM changes in the Cloud Console.
 After a create timeout, check for the resource before retrying; new VMs can take
 several minutes to appear in listings.
 

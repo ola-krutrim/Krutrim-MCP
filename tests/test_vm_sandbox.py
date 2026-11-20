@@ -40,6 +40,7 @@ VM_TOOLS = {
     "extend_vm_sandbox_ttl",
     "resize_vm_sandbox",
     "get_vm_sandbox_usage",
+    "get_vm_sandbox_stats",
     "list_vm_sandbox_templates",
     "describe_vm_sandbox_template",
     "create_vm_sandbox_template",
@@ -276,7 +277,7 @@ def test_server_registers_only_vm_sandbox_tools():
     assert VM_TOOLS <= names
     assert not REMOVED_TOOLS & names
     assert {name for name in names if "sandbox" in name} == VM_TOOLS
-    assert len(names) == 194
+    assert len(names) == 186
     assert "VM Sandbox is only available in In-Hyderabad-1" in server.instructions
     assert "separate product" not in server.instructions
     create = server._tool_manager.get_tool("create_vm_sandbox")
@@ -1072,3 +1073,54 @@ def test_server_error_bodies_are_withheld(harness):
         harness.call("describe_vm_sandbox", krn_id=KRN, region=REGION)
     assert "secret-backend-detail" not in str(error.value)
     assert "withheld" in str(error.value)
+
+
+def test_stats_is_a_region_scoped_read(harness):
+    body = {"code": "ok", "details": {"krn_id": KRN, "cpu_percent": 3.5}}
+    harness.replies[("GET", f"{PREFIX}/sandboxes/{KRN}/stats")] = (200, body)
+    result = harness.call("get_vm_sandbox_stats", krn_id=KRN, region=REGION)
+    assert result.data == body
+    (request,) = harness.requests
+    assert request.method == "GET"
+    assert _header(request, "x-region") == REGION
+    tool = harness.tool("get_vm_sandbox_stats")
+    assert "confirm" not in tool.parameters["properties"]
+
+
+def test_stats_rejects_bad_input_before_http(harness):
+    with pytest.raises(ToolError, match=r":\*\*\*:"):
+        harness.call(
+            "get_vm_sandbox_stats",
+            krn_id="krn:vm-sandbox:In-Hyderabad-1:***:cust:demo",
+            region=REGION,
+        )
+    with pytest.raises(ToolError, match="VM Sandbox is only available in In-Hyderabad-1"):
+        harness.call("get_vm_sandbox_stats", krn_id=KRN, region="In-Bangalore-1")
+    assert harness.requests == []
+
+
+def test_stats_not_found_shows_the_api_message_and_is_not_retried(harness):
+    harness.replies[("GET", f"{PREFIX}/sandboxes/{KRN}/stats")] = httpx.Response(
+        404,
+        json={"code": "Stats.Get", "message": f"no such sandbox: {KRN}"},
+    )
+    with pytest.raises(ToolError) as error:
+        harness.call("get_vm_sandbox_stats", krn_id=KRN, region=REGION)
+    text = str(error.value)
+    assert "HTTP 404" in text
+    assert "no such sandbox" in text
+    assert len(harness.requests) == 1
+
+
+def test_stats_withholds_unparseable_and_server_error_bodies(harness):
+    harness.replies[("GET", f"{PREFIX}/sandboxes/{KRN}/stats")] = [
+        httpx.Response(200, content=b"secret-body", headers={"content-type": "text/plain"}),
+        httpx.Response(500, json={"message": "secret-backend-detail"}),
+    ]
+    with pytest.raises(ToolError, match="unexpected response") as error:
+        harness.call("get_vm_sandbox_stats", krn_id=KRN, region=REGION)
+    assert "secret-body" not in str(error.value)
+    with pytest.raises(ToolError) as error:
+        harness.call("get_vm_sandbox_stats", krn_id=KRN, region=REGION)
+    assert "secret-backend-detail" not in str(error.value)
+    assert len(harness.requests) == 2

@@ -8,7 +8,9 @@ import re
 import time
 import unicodedata
 from typing import Any
+from urllib.parse import quote
 
+import httpx
 from krutrim_client import KrutrimClient
 from pydantic import BaseModel
 
@@ -566,6 +568,24 @@ def sandbox_usage(client: KrutrimClient, *, krn_id: str, x_region: str) -> dict[
     krn = validate_identifier(krn_id, "krn_id")
     region = require_region(x_region)
     return _dump(_sandbox_api(client).sandboxes.usage(krn_id=krn, x_region=region))
+
+
+def sandbox_stats(client: KrutrimClient, *, krn_id: str, x_region: str) -> dict[str, Any]:
+    """GET /sandbox/v1/sandboxes/{krn_id}/stats (krutrim-client 0.8.9 has no method)."""
+    krn = validate_identifier(krn_id, "krn_id")
+    region = require_region(x_region)
+    response = client.with_options(max_retries=0).get(
+        f"/sandbox/v1/sandboxes/{quote(krn, safe=':')}/stats",
+        cast_to=httpx.Response,
+        options={"headers": {"x-region": region}},
+    )
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if not isinstance(payload, dict):
+        raise ValueError("VM Sandbox returned an unexpected response; details withheld")
+    return payload
 
 
 def exec_sandbox(

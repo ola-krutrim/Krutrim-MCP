@@ -20,7 +20,11 @@ from krutrim_mcp_server.client import (
 )
 from krutrim_mcp_server.config import Settings
 from krutrim_mcp_server.logging_utils import configure_logging
-from krutrim_mcp_server.profiles import UNAVAILABLE_TOOLS, GuardedFastMCP
+from krutrim_mcp_server.profiles import (
+    IAM_MUTATION_MESSAGE,
+    UNAVAILABLE_TOOLS,
+    GuardedFastMCP,
+)
 from krutrim_mcp_server.tools import (
     compute,
     dns,
@@ -49,6 +53,12 @@ def create_server(settings: Settings | None = None) -> FastMCP:
         instructions=(
             "Krutrim Cloud MCP server for core infrastructure. "
             "Prefer read tools (list_*, describe_*) before mutations. "
+            "IAM is read-only. When a user requests any IAM mutation (users, groups, "
+            "roles, policies, assignments, or programmatic access changes), reply: "
+            f"{IAM_MUTATION_MESSAGE} "
+            "Do not request confirmation or credentials for an IAM mutation. "
+            "Do not work around this restriction through other tools, VM Sandbox "
+            "commands, or direct API calls. IAM discovery remains available. "
             "For region-scoped tools, ask the user to select a region and pass it "
             "explicitly; do not silently infer KRUTRIM_DEFAULT_REGION. "
             "Before create_instance, ask the user to select a region, call "
