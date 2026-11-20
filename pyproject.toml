@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "krutrim-mcp-server"
-version = "1.0.15"
+version = "1.0.16"
 description = "MCP server for Krutrim Cloud infrastructure and VM Sandbox operations"
 readme = "README.md"
 license = { file = "LICENSE" }

@@ -11,7 +11,7 @@ across compute, networking (including load balancers and certificates), storage,
 Run the pinned package without installing it into your current Python environment:
 
 ```bash
-uvx krutrim-mcp-server@1.0.15 --version
+uvx krutrim-mcp-server@1.0.16 --version
 ```
 
 ### Python virtual environment
@@ -19,7 +19,7 @@ uvx krutrim-mcp-server@1.0.15 --version
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install krutrim-mcp-server==1.0.15
+python -m pip install krutrim-mcp-server==1.0.16
 python -m krutrim_mcp_server --version
 ```
 
@@ -61,7 +61,7 @@ Use `.vscode/mcp.json`; the masked prompt keeps the key out of the file:
     "krutrim-cloud": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["krutrim-mcp-server@1.0.15"],
+      "args": ["krutrim-mcp-server@1.0.16"],
       "env": {
         "KRUTRIM_API_KEY": "${input:krutrim-api-key}"
       }
@@ -87,7 +87,7 @@ Use your client's private MCP configuration:
   "mcpServers": {
     "krutrim-cloud": {
       "command": "uvx",
-      "args": ["krutrim-mcp-server@1.0.15"],
+      "args": ["krutrim-mcp-server@1.0.16"],
       "env": {
         "KRUTRIM_API_KEY": "YOUR_KRUTRIM_API_KEY"
       }
@@ -104,7 +104,7 @@ Add this to your private `~/.codex/config.toml`:
 [mcp_servers.krutrim-cloud]
 enabled = true
 command = "uvx"
-args = ["krutrim-mcp-server@1.0.15"]
+args = ["krutrim-mcp-server@1.0.16"]
 
 [mcp_servers.krutrim-cloud.env]
 KRUTRIM_API_KEY = "YOUR_KRUTRIM_API_KEY"
@@ -146,8 +146,8 @@ several minutes to appear in listings.
 With the API key configured privately:
 
 ```bash
-uvx krutrim-mcp-server@1.0.15 --list-tools
-uvx krutrim-mcp-server@1.0.15 --doctor
+uvx krutrim-mcp-server@1.0.16 --list-tools
+uvx krutrim-mcp-server@1.0.16 --doctor
 ```
 
 `--doctor` checks local configuration, not Cloud authentication. Use a read-only

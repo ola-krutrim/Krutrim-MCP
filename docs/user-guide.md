@@ -2,7 +2,7 @@
 
 ## Before you begin
 
-These instructions describe **version 1.0.15** and its API-key-only configuration.
+These instructions describe **version 1.0.16** and its API-key-only configuration.
 Install the release when available on PyPI, or install this checkout during
 release preparation. See [installation](../README.md#install) and
 [client configuration](../README.md#connect-locally).

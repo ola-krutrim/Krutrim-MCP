@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.16 — 2026-11-20
 
 - `confirm` must be the boolean `true`. Strings and numbers such as `"true"`,
   `"yes"`, or `1` are now refused on every mutating tool.
