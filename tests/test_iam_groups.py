@@ -5,8 +5,6 @@ from unittest.mock import MagicMock
 import httpx
 
 from krutrim_mcp_server.adapters.iam import (
-    create_iam_group,
-    delete_iam_group,
     get_iam_group,
     list_iam_group_roles,
     list_iam_groups,
@@ -14,7 +12,6 @@ from krutrim_mcp_server.adapters.iam import (
     list_iam_user_roles,
     list_iam_users,
     require_iam_krn,
-    require_iam_krn_list,
 )
 
 USER_KRN = "kcs::global::1234567890::customer-1::iam::users::user-1"
@@ -52,7 +49,6 @@ def test_iam_krn_guards_reject_partial_or_wrong_resource_identifiers() -> None:
     assert require_iam_krn(USER_KRN, resource="user", field="user_id") == USER_KRN
     assert require_iam_krn(GROUP_KRN, resource="group", field="group_id") == GROUP_KRN
     assert require_iam_krn(ROLE_KRN, resource="role", field="role_id") == ROLE_KRN
-    assert require_iam_krn_list([ROLE_KRN], resource="role", field="role_ids") == [ROLE_KRN]
 
     for value, resource, field in (
         ("user-uuid", "user", "user_id"),
@@ -104,24 +100,3 @@ def test_list_iam_groups_accepts_live_pagination_envelopes() -> None:
     )
 
     assert list_iam_groups(client) == []
-
-
-def test_iam_group_create_and_delete_wire_contract() -> None:
-    client = MagicMock()
-    client.post.return_value = httpx.Response(201, json={"krn": "group-1"})
-    client.delete.return_value = httpx.Response(200, json={"deleted": True})
-
-    assert create_iam_group(client, name="platform-admins", description="Platform team") == {
-        "krn": "group-1"
-    }
-    assert delete_iam_group(client, GROUP_KRN) == {"deleted": True}
-
-    client.post.assert_called_once_with(
-        "/iam/v1/group",
-        cast_to=httpx.Response,
-        body={"name": "platform-admins", "description": "Platform team"},
-    )
-    client.delete.assert_called_once_with(
-        f"/iam/v1/groups/{GROUP_KRN}",
-        cast_to=httpx.Response,
-    )

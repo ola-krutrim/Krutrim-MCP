@@ -281,3 +281,20 @@ def register(mcp: Any) -> None:
             )
 
         return run_vm_tool(_run)
+
+    @mcp.tool()
+    def get_vm_sandbox_stats(
+        krn_id: VmSandboxID,
+        region: VmSandboxRegion,
+    ) -> ToolSuccess:
+        """Read live CPU, memory, disk, network, and process stats for one VM Sandbox.
+
+        Does not change the sandbox.
+        """
+
+        def _run() -> Any:
+            return api.sandbox_stats(
+                get_session().get_client(), krn_id=krn_id, x_region=region
+            )
+
+        return run_vm_tool(_run)

@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.server import Settings as FastMCPSettings
-from mcp.types import CallToolRequest, CallToolResult, ServerResult, ToolAnnotations
+from mcp.types import (
+    CallToolRequest,
+    CallToolResult,
+    ContentBlock,
+    ServerResult,
+    ToolAnnotations,
+)
 from pydantic.fields import FieldInfo
 
 from krutrim_mcp_server.serialize import redact_tool_result
@@ -31,6 +38,7 @@ READ_ONLY_TOOLS = {
     "list_vm_sandboxes",
     "describe_vm_sandbox",
     "get_vm_sandbox_usage",
+    "get_vm_sandbox_stats",
     "list_vm_sandbox_flavors",
     "list_vm_sandbox_templates",
     "describe_vm_sandbox_template",
@@ -107,7 +115,6 @@ ADDITIVE_TOOLS = {
     "create_vm_sandbox",
     "create_vm_sandbox_template",
     "add_dns_zone_vpc",
-    "attach_policies_to_role",
     "attach_security_group_rule",
     "attach_volume",
     "create_and_attach_security_group_rule",
@@ -115,9 +122,6 @@ ADDITIVE_TOOLS = {
     "create_bucket",
     "create_dns_record",
     "create_dns_zone",
-    "create_iam_role_with_policies",
-    "create_iam_group",
-    "create_iam_user",
     "create_instance",
     "create_instance_template",
     "batch_create_vms",
@@ -139,7 +143,6 @@ ADDITIVE_TOOLS = {
     "create_volume_snapshot",
     "create_volume_snapshot_policy",
     "create_vpc",
-    "enable_programmatic_access",
     "install_kks_addon",
     "upscale_asg",
 }
@@ -149,6 +152,8 @@ DESTRUCTIVE_TOOLS = {
     "delete_load_balancer",
     "update_target_group",
     "delete_target_group",
+    "attach_asg_to_target_group",
+    "detach_asg_from_target_group",
     "update_certificate",
     "delete_certificate",
     "delete_vm_sandbox",
@@ -164,7 +169,6 @@ DESTRUCTIVE_TOOLS = {
     "write_vm_sandbox_file",
     "create_vm_sandbox_terminal_ticket",
     "delete_vm_sandbox_template",
-    "assign_roles_to_user",
     "attach_floating_ip",
     "change_volume_type",
     "delete_asg",
@@ -172,9 +176,6 @@ DESTRUCTIVE_TOOLS = {
     "delete_dns_record",
     "delete_dns_zone",
     "delete_floating_ip",
-    "delete_iam_role",
-    "delete_iam_group",
-    "delete_iam_user",
     "delete_image",
     "delete_instance",
     "delete_instance_template",
@@ -198,14 +199,12 @@ DESTRUCTIVE_TOOLS = {
     "detach_floating_ip",
     "detach_security_group_rule",
     "detach_volume",
-    "disable_programmatic_access",
     "downscale_asg",
     "extend_volume",
     "force_delete_volume",
     "instance_action",
     "kpod_action",
     "remove_dns_zone_vpc",
-    "reset_programmatic_access",
     "restore_volume_backup",
     "update_asg",
     "update_dns_record",
@@ -217,6 +216,20 @@ DESTRUCTIVE_TOOLS = {
     "upgrade_kks_node_group",
 }
 UNAVAILABLE_TOOLS: set[str] = set()
+IAM_MUTATION_TOOLS = frozenset({
+    "assign_roles_to_user",
+    "attach_policies_to_role",
+    "create_iam_group",
+    "create_iam_role_with_policies",
+    "create_iam_user",
+    "delete_iam_group",
+    "delete_iam_role",
+    "delete_iam_user",
+    "disable_programmatic_access",
+    "enable_programmatic_access",
+    "reset_programmatic_access",
+})
+IAM_MUTATION_MESSAGE = "Use the Cloud Console for IAM-related mutation operations."
 
 
 def is_read_only_tool(name: str) -> bool:
@@ -240,6 +253,24 @@ def annotations_for_tool(name: str) -> ToolAnnotations:
         idempotentHint=read_only,
         openWorldHint=name not in _META_TOOLS,
     )
+
+
+def _require_boolean_confirm(name: str, tool: Any, arguments: dict[str, Any]) -> None:
+    """Refuse a non-boolean ``confirm`` before argument validation can coerce it.
+
+    Pydantic's lax mode turns 1, "true", "yes" and similar into True, so a tool typed
+    ``confirm: bool`` would otherwise treat them as consent. This is the single choke
+    point every tool call passes through; the per-tool ``ensure_confirmed`` still
+    requires exactly ``True`` afterwards.
+    """
+    if "confirm" not in tool.fn_metadata.arg_model.model_fields:
+        return
+    if "confirm" in arguments and type(arguments["confirm"]) is not bool:
+        raise ToolError(
+            f"Error executing tool {name}: Refusing guarded operation '{name}'. "
+            "confirm must be the boolean true (not a string or number). "
+            "Re-call with confirm=true after verifying the target details."
+        )
 
 
 class GuardedFastMCP(FastMCP):
@@ -283,6 +314,20 @@ class GuardedFastMCP(FastMCP):
                 return ServerResult(CallToolResult(content=[], isError=True))
 
         self._mcp_server.request_handlers[CallToolRequest] = redacted_call_tool
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+    ) -> Sequence[ContentBlock] | dict[str, Any]:
+        # IAM is read-only: its mutation tools are not registered. A client with a
+        # cached catalog gets Cloud Console guidance instead of "Unknown tool".
+        if name in IAM_MUTATION_TOOLS:
+            raise ToolError(IAM_MUTATION_MESSAGE)
+        tool = self._tool_manager.get_tool(name)
+        if tool is not None:
+            _require_boolean_confirm(name, tool, arguments)
+        return await super().call_tool(name, arguments)
 
     def tool(
         self,

@@ -18,6 +18,11 @@ VPC = "krn:vpc:In-Bangalore-1:7655600597:cust-uuid-1234:vpc:vpc-uuid-5678"
 MASKED_VPC = "krn:vpc:In-Bangalore-1:7655600597:***:vpc:vpc-uuid-5678"
 LB = "krn:lb:In-Bangalore-1:7655600597:cust-uuid-1234:loadbalancer:lb-uuid-9999"
 MASKED_LB = "krn:lb:In-Bangalore-1:7655600597:***:loadbalancer:lb-uuid-9999"
+TG = "krn:tg:In-Bangalore-1:7655600597:cust-uuid-1234:targetgroup:tg-uuid-1"
+MASKED_TG = "krn:tg:In-Bangalore-1:7655600597:***:targetgroup:tg-uuid-1"
+ASG = "krn:asg:In-Bangalore-1:7655600597:cust-uuid-1234:asg:asg-uuid-1"
+MASKED_ASG = "krn:asg:In-Bangalore-1:7655600597:***:asg:asg-uuid-1"
+RM = {"name": "vm-9", "address": "10.0.0.9", "protocol_port": 80, "weight": 1}
 CERT = "cert-0001"
 
 
@@ -76,6 +81,8 @@ def test_registers_expected_tools(wire):
         "create_target_group",
         "update_target_group",
         "delete_target_group",
+        "attach_asg_to_target_group",
+        "detach_asg_from_target_group",
         "list_certificates",
         "describe_certificate",
         "get_expiring_certificates",
@@ -303,6 +310,8 @@ LB_MUTATIONS = [
     ("create_target_group", dict(vpc_id=VPC, target_group_name="t")),
     ("update_target_group", dict(vpc_id=VPC, target_group_name="t", members=[])),
     ("delete_target_group", dict(vpc_id=VPC, target_group_name="t")),
+    ("attach_asg_to_target_group", dict(target_group_krn=TG, asg_krn=ASG, asg_member_port=80)),
+    ("detach_asg_from_target_group", dict(target_group_krn=TG, replacement_members=[RM])),
 ]
 
 
@@ -337,6 +346,14 @@ def test_lb_mutations_blocked_in_read_only_mode(wire, name, kwargs):
         ("create_target_group", dict(vpc_id=VPC, target_group_name="t", confirm=True)),
         ("update_target_group", dict(vpc_id=VPC, target_group_name="t", confirm=True)),
         ("delete_target_group", dict(vpc_id=VPC, target_group_name="t", confirm=True)),
+        (
+            "attach_asg_to_target_group",
+            dict(target_group_krn=TG, asg_krn=ASG, asg_member_port=80, confirm=True),
+        ),
+        (
+            "detach_asg_from_target_group",
+            dict(target_group_krn=TG, replacement_members=[RM], confirm=True),
+        ),
     ],
 )
 def test_lb_tools_reject_unknown_region(wire, name, kwargs):
@@ -355,6 +372,18 @@ def test_lb_tools_reject_unknown_region(wire, name, kwargs):
             "update_target_group",
             dict(vpc_id=MASKED_VPC, target_group_name="t", members=[], confirm=True),
         ),
+        (
+            "attach_asg_to_target_group",
+            dict(target_group_krn=MASKED_TG, asg_krn=ASG, asg_member_port=80, confirm=True),
+        ),
+        (
+            "attach_asg_to_target_group",
+            dict(target_group_krn=TG, asg_krn=MASKED_ASG, asg_member_port=80, confirm=True),
+        ),
+        (
+            "detach_asg_from_target_group",
+            dict(target_group_krn=MASKED_TG, replacement_members=[RM], confirm=True),
+        ),
     ],
 )
 def test_identity_tools_reject_masked_krns_before_any_request(wire, name, kwargs):
@@ -367,6 +396,143 @@ def test_identity_derivation_rejects_non_krn(wire):
     with pytest.raises(ToolError, match="full KRN"):
         wire.call("get_detailed_target_groups", vpc_id="not-a-krn", region=REGION)
     assert wire.requests == []
+
+
+# ------------------------------------------------------------- ASG with target groups
+
+
+def _identity_headers(request: httpx.Request) -> None:
+    assert request.headers["x-region"] == REGION
+    assert request.headers["k-customer-id"] == "cust-uuid-1234"
+    assert request.headers["x-account-id"] == "7655600597"
+
+
+def test_attach_asg_wire(wire):
+    wire.body = {"request_id": "r-1"}
+    result = wire.call(
+        "attach_asg_to_target_group",
+        target_group_krn=TG,
+        asg_krn=ASG,
+        asg_member_port=80,
+        region=REGION,
+        confirm=True,
+    )
+    request = _last(wire)
+    assert request.method == "POST"
+    assert request.url.path == f"/api/v3/loadBalancer/targetgroup/{TG}/asg-attachment"
+    _identity_headers(request)
+    assert _json(request) == {
+        "asg_krn": ASG,
+        "member_port": 80,
+        "migration_policy": "replace_with_asg_members",
+    }
+    assert result.data == {"request_id": "r-1"}
+
+
+def test_attach_asg_sends_optional_fields(wire):
+    wire.call(
+        "attach_asg_to_target_group",
+        target_group_krn=TG,
+        asg_krn=ASG,
+        asg_member_port=8080,
+        asg_name=" web-asg ",
+        asg_default_weight=0,
+        region=REGION,
+        confirm=True,
+    )
+    assert _json(_last(wire)) == {
+        "asg_krn": ASG,
+        "member_port": 8080,
+        "asg_name": "web-asg",
+        "default_weight": 0,
+        "migration_policy": "replace_with_asg_members",
+    }
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        (dict(asg_member_port=0), "asg_member_port"),
+        (dict(asg_member_port=65536), "asg_member_port"),
+        (dict(asg_member_port=True), "asg_member_port"),
+        (dict(asg_member_port=80, asg_default_weight=257), "asg_default_weight"),
+        (dict(asg_member_port=80, asg_default_weight=-1), "asg_default_weight"),
+        (dict(asg_member_port=80, asg_krn="  "), "asg_krn"),
+    ],
+)
+def test_attach_asg_rejects_invalid_fields(wire, kwargs, match):
+    kwargs = {"asg_krn": ASG, **kwargs}
+    with pytest.raises(ToolError, match=match):
+        wire.call(
+            "attach_asg_to_target_group",
+            target_group_krn=TG,
+            region=REGION,
+            confirm=True,
+            **kwargs,
+        )
+    assert wire.requests == []
+
+
+def test_detach_asg_wire(wire):
+    wire.call(
+        "detach_asg_from_target_group",
+        target_group_krn=TG,
+        replacement_members=[RM],
+        region=REGION,
+        confirm=True,
+    )
+    request = _last(wire)
+    assert request.method == "POST"
+    assert request.url.path == f"/api/v3/loadBalancer/targetgroup/{TG}/asg-detachment"
+    _identity_headers(request)
+    assert _json(request) == {"replacement_members": [RM]}
+
+
+@pytest.mark.parametrize("members", [[], None, "x"])
+def test_detach_asg_requires_replacement_members(wire, members):
+    with pytest.raises(ToolError, match="replacement_members"):
+        wire.call(
+            "detach_asg_from_target_group",
+            target_group_krn=TG,
+            replacement_members=members,
+            region=REGION,
+            confirm=True,
+        )
+    assert wire.requests == []
+
+
+@pytest.mark.parametrize("tool", ["attach_asg_to_target_group", "detach_asg_from_target_group"])
+@pytest.mark.parametrize(
+    "krn",
+    [
+        "krn:tg:In-Bangalore-1:7655600597:cust-uuid-1234:targetgroup:../x",
+        "krn:tg:In-Bangalore-1:7655600597:cust-uuid-1234:targetgroup:a/b",
+        "krn:tg:In-Bangalore-1:7655600597:cust-uuid-1234:targetgroup:a?b",
+    ],
+)
+def test_asg_attachment_tools_block_unsafe_krns(wire, tool, krn):
+    kwargs = (
+        dict(asg_krn=ASG, asg_member_port=80)
+        if tool.startswith("attach")
+        else dict(replacement_members=[RM])
+    )
+    with pytest.raises(ToolError, match="Request blocked"):
+        wire.call(tool, target_group_krn=krn, region=REGION, confirm=True, **kwargs)
+    assert wire.requests == []
+
+
+def test_asg_attachment_backend_errors_surface_as_tool_errors(wire):
+    wire.status, wire.body = 409, {"message": "target group already has an ASG"}
+    with pytest.raises(ToolError):
+        wire.call(
+            "attach_asg_to_target_group",
+            target_group_krn=TG,
+            asg_krn=ASG,
+            asg_member_port=80,
+            region=REGION,
+            confirm=True,
+        )
+    assert len(wire.requests) == 1
 
 
 # ------------------------------------------------------------- certificates

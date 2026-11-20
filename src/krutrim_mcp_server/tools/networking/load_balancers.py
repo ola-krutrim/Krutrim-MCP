@@ -2,6 +2,7 @@
 
 from typing import Any, Optional
 
+from krutrim_mcp_server.adapters import load_balancer as lb_api
 from krutrim_mcp_server.client import get_session
 from krutrim_mcp_server.compat import sdk_raw_result, sdk_response_json
 from krutrim_mcp_server.guards import ensure_confirmed, ensure_writable
@@ -44,6 +45,37 @@ def _identity_from_krn(krn: str, *, label: str) -> tuple[str, str]:
             "krn:<service>:<region>:<account>:<customer>:<type>:<id>"
         )
     return parts[4], parts[3]
+
+
+def _asg_attachment(
+    asg_krn: str,
+    member_port: int,
+    asg_name: Optional[str],
+    default_weight: Optional[int],
+) -> dict[str, Any]:
+    """Validate and build the ASG attachment fields (mirrors the service's rules)."""
+    krn = _require_text(asg_krn, "asg_krn")
+    if ":***:" in krn:
+        raise ValueError(
+            "asg_krn contains a masked account segment (':***:'). Replace '***' with "
+            "your account (customer) UUID before calling this tool."
+        )
+    if type(member_port) is not int or not 1 <= member_port <= 65535:
+        raise ValueError("asg_member_port must be an integer between 1 and 65535")
+    if default_weight is not None and (
+        type(default_weight) is not int or not 0 <= default_weight <= 256
+    ):
+        raise ValueError("asg_default_weight must be an integer between 0 and 256")
+    return drop_none(
+        {
+            "asg_krn": krn,
+            "member_port": member_port,
+            "asg_name": asg_name.strip()
+            if isinstance(asg_name, str) and asg_name.strip()
+            else None,
+            "default_weight": default_weight,
+        }
+    )
 
 
 def register(mcp: Any) -> None:
@@ -401,6 +433,81 @@ def register(mcp: Any) -> None:
                 target_group_name=name,
                 vpc_id=vpc,
                 x_region=resolve_region(region),
+            )
+
+        return run_tool(_run)
+
+    @mcp.tool()
+    def attach_asg_to_target_group(
+        target_group_krn: str,
+        asg_krn: str,
+        asg_member_port: int,
+        region: Region = REGION_FIELD,
+        asg_name: Optional[str] = None,
+        asg_default_weight: Optional[int] = None,
+        confirm: bool = CONFIRM_FIELD,
+    ) -> str:
+        """Attach an ASG to an existing manual target group (asynchronous).
+
+        The group's current members are REPLACED by the ASG's running VMs (policy
+        replace_with_asg_members), and later scale-in/out events keep it in sync. The ASG
+        must have at least one running VM. A group can have only one ASG, and an
+        ASG-managed group cannot be attached again (a failed attachment to the same ASG can
+        be retried). target_group_krn must be the full, unmasked KRN; the account and
+        customer identity are derived from it. Returns a request id; poll
+        get_load_balancer_task_status.
+        """
+
+        def _run() -> Any:
+            ensure_writable(settings(), "attach_asg_to_target_group")
+            ensure_confirmed(confirm, "attach_asg_to_target_group", target_group_krn)
+            krn = _require_text(target_group_krn, "target_group_krn")
+            customer_id, account_id = _identity_from_krn(krn, label="target_group_krn")
+            body = {
+                **_asg_attachment(asg_krn, asg_member_port, asg_name, asg_default_weight),
+                "migration_policy": "replace_with_asg_members",
+            }
+            return lb_api.attach_asg_to_target_group(
+                get_session().get_client(),
+                target_group_krn=krn,
+                body=body,
+                region=resolve_region(region),
+                customer_id=customer_id,
+                account_id=account_id,
+            )
+
+        return run_tool(_run)
+
+    @mcp.tool()
+    def detach_asg_from_target_group(
+        target_group_krn: str,
+        replacement_members: list[dict[str, Any]],
+        region: Region = REGION_FIELD,
+        confirm: bool = CONFIRM_FIELD,
+    ) -> str:
+        """Detach the ASG from a target group and make it manually managed (asynchronous).
+
+        The ASG-created members are removed and replaced by replacement_members, which is
+        required because a target group cannot be empty. Each member needs name, address
+        (an IP in the group's VPC), protocol_port (1-65535) and weight (0-256).
+        target_group_krn must be the full, unmasked KRN; the account and customer identity
+        are derived from it. Returns a request id; poll get_load_balancer_task_status.
+        """
+
+        def _run() -> Any:
+            ensure_writable(settings(), "detach_asg_from_target_group")
+            ensure_confirmed(confirm, "detach_asg_from_target_group", target_group_krn)
+            krn = _require_text(target_group_krn, "target_group_krn")
+            if not isinstance(replacement_members, list) or not replacement_members:
+                raise ValueError("replacement_members must be a non-empty list")
+            customer_id, account_id = _identity_from_krn(krn, label="target_group_krn")
+            return lb_api.detach_asg_from_target_group(
+                get_session().get_client(),
+                target_group_krn=krn,
+                body={"replacement_members": replacement_members},
+                region=resolve_region(region),
+                customer_id=customer_id,
+                account_id=account_id,
             )
 
         return run_tool(_run)

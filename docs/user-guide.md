@@ -2,7 +2,7 @@
 
 ## Before you begin
 
-These instructions describe **version 1.0.15** and its API-key-only configuration.
+These instructions describe **version 1.0.16** and its API-key-only configuration.
 Install the release when available on PyPI, or install this checkout during
 release preparation. See [installation](../README.md#install) and
 [client configuration](../README.md#connect-locally).
@@ -68,7 +68,7 @@ one.
 | Create a KPod | `list_kpod_flavors` and `list_kpod_templates` |
 | Create a VM Sandbox | `list_vm_sandbox_flavors` and `list_vm_sandbox_templates` in `In-Hyderabad-1` |
 | Manage storage | `list_volumes`, `list_volume_types`, or `list_buckets` |
-| Manage IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
+| View IAM | `list_iam_users`, `list_iam_groups`, and `list_iam_roles` |
 | Manage load balancers | `list_load_balancers`, `list_target_groups`, and `get_load_balancer_payload` |
 | Manage certificates | `list_certificates` and `get_expiring_certificates` |
 | Import a VM image | `upload_image_s3` (HTTP(S) or pre-signed S3 URL) |
@@ -106,6 +106,8 @@ an operation. Poll it with `wait_vm_sandbox_operation`. A timeout does not
 cancel the operation. Resize keeps the disk and drops running processes.
 `exec_vm_sandbox` fails when the exit code is nonzero. A token port URL and a
 terminal ticket are credentials returned only by the call that creates them.
+`get_vm_sandbox_usage` returns metered usage. `get_vm_sandbox_stats` returns live
+CPU, memory, disk, network, and process figures.
 
 Load balancer create and update calls, and `get_detailed_target_groups`, derive the
 account and customer headers from a full, unmasked VPC or load balancer KRN. KRNs from
@@ -113,8 +115,15 @@ list output redact the account segment as `:***:`; replace it with your account 
 first. `import_certificate` and `update_certificate` read a local .pem, .crt, .cer, .cert,
 .pfx or .p12 file of at most 1 MiB and upload its contents.
 
-IAM operations require full IAM KRNs. Use the KRN returned by a list operation;
-do not use a UUID, a display name, or a partial identifier.
+`attach_asg_to_target_group` and `detach_asg_from_target_group` derive the same headers
+from a full, unmasked target group KRN. Attaching replaces the group's members with the
+ASG's VMs; detaching requires replacement members. Poll both with
+`get_load_balancer_task_status`.
+
+IAM tools are read-only. Make IAM changes (users, groups, roles, policies,
+assignments, and programmatic access) in the Cloud Console. IAM lookups require
+full IAM KRNs. Use the KRN returned by a list operation; do not use a UUID, a
+display name, or a partial identifier.
 
 ## VM creation and public IPs
 
@@ -130,15 +139,12 @@ create request before retrying.
 
 ## Safety controls
 
-- Mutations require `confirm=true`.
+- Mutations require `confirm=true` as a boolean. Strings and numbers such as
+  `"true"` or `1` are refused.
 - `KRUTRIM_MCP_READ_ONLY=true` blocks every mutation.
 - Do not retry a timed-out create immediately. List by name or identifier first
   to determine whether the resource was created.
 - For destructive operations, inspect the selected identifier before confirming.
-- The `create_iam_user` password is sensitive. Use it only from a trusted MCP
-  host because tool-call transcripts and host logs are outside this package's
-  control. Use the approved encrypted credential-delivery or out-of-band
-  process where applicable.
 
 ## Troubleshooting
 

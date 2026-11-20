@@ -7,7 +7,7 @@ from urllib.parse import quote
 import httpx
 from krutrim_client import KrutrimClient
 
-from krutrim_mcp_server.adapters._http import required_json_response, response_payload
+from krutrim_mcp_server.adapters._http import required_json_response
 
 _IAM_BASE_PATH = "/iam/v1"
 _KCS_IAM_KRN = re.compile(
@@ -39,15 +39,6 @@ def require_iam_krn(value: str, *, resource: str, field: str) -> str:
             f"{field} must be a full IAM {resource} KRN, not a UUID or name"
         )
     return normalized
-
-
-def require_iam_krn_list(values: list[str], *, resource: str, field: str) -> list[str]:
-    if not isinstance(values, list) or not values:
-        raise ValueError(f"{field} must contain at least one full IAM {resource} KRN")
-    return [
-        require_iam_krn(value, resource=resource, field=f"{field}[{index}]")
-        for index, value in enumerate(values)
-    ]
 
 
 def _list_response(
@@ -102,37 +93,6 @@ def get_iam_group(client: KrutrimClient, group_krn: str) -> dict[str, Any]:
         cast_to=httpx.Response,
     )
     return required_json_response(response, expected_type=dict, operation="get_iam_group")
-
-
-def create_iam_group(
-    client: KrutrimClient,
-    *,
-    name: str,
-    description: str | None,
-) -> dict[str, Any]:
-    """Create an IAM group using the public Cloud group contract."""
-    normalized_name = _required_identifier(name, field="name")
-    body: dict[str, Any] = {"name": normalized_name}
-    if description is not None:
-        normalized_description = description.strip()
-        if normalized_description:
-            body["description"] = normalized_description
-    response = client.post(
-        f"{_IAM_BASE_PATH}/group",
-        cast_to=httpx.Response,
-        body=body,
-    )
-    return response_payload(response)
-
-
-def delete_iam_group(client: KrutrimClient, group_krn: str) -> dict[str, Any]:
-    """Delete an IAM group by its KRN."""
-    normalized_krn = require_iam_krn(group_krn, resource="group", field="group_krn")
-    response = client.delete(
-        f"{_IAM_BASE_PATH}/groups/{quote(normalized_krn, safe=':')}",
-        cast_to=httpx.Response,
-    )
-    return response_payload(response)
 
 
 def list_iam_group_roles(client: KrutrimClient, group_krn: str) -> list[Any]:
